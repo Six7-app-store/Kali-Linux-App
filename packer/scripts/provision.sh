@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # Provisioning Script für Golden Kali-Linux Image
 # - XFCE-Desktop + XRDP (grafischer Zugang über Port 3389)
 # - Kuratierte Auswahl der Kali-Werkzeuge
 # - Desktop-Integration unter /etc/skel/ (Starter, MIME-Typen, Autostart)
 # - Security-Lernverzeichnis unter /etc/skel/kali-kurs/
 # - Idempotent, reproduzierbar, CI/CD-tauglich
-# -----------------------------------------------------------------------------
+# =============================================================================
 
 export DEBIAN_FRONTEND=noninteractive
 
+# Error-Handling: bei Fehler Ausgabe und Exit-Code
+trap 'echo "❌ FEHLER in $0 Zeile $LINENO"; exit 1' ERR
+
+echo "=== Kali-Linux Provisioning ($(date)) ==="
 echo "Warte auf cloud-init (sofern vorhanden)..."
 cloud-init status --wait || true
 
@@ -546,11 +550,37 @@ xrdp --version || true
 nmap --version | head -1 || true
 
 echo "Cleanup: apt-Cache & Listen entfernen..."
-sudo apt-get clean
-sudo rm -rf /var/lib/apt/lists/*
+sudo apt-get clean || { echo "⚠️ apt-get clean fehlgeschlagen"; }
+sudo rm -rf /var/lib/apt/lists/* || { echo "⚠️ apt-listen-Cleanup fehlgeschlagen"; }
 
 echo "Setze machine-id zurück..."
-sudo truncate -s 0 /etc/machine-id
+sudo truncate -s 0 /etc/machine-id || { echo "⚠️ machine-id truncate fehlgeschlagen"; }
 sudo rm -f /var/lib/dbus/machine-id || true
 
-echo "Provisioning abgeschlossen."
+# =============================================================================
+# Verifikation: Kritische Komponenten nach dem Build testen
+# =============================================================================
+echo "=== Verifikation nach Provisioning ==="
+
+echo "✓ XRDP installiert?"
+which xrdp >/dev/null 2>&1 || { echo "❌ XRDP nicht gefunden"; exit 1; }
+
+echo "✓ XFCE installiert?"
+which xfce4-session >/dev/null 2>&1 || { echo "❌ XFCE nicht gefunden"; exit 1; }
+
+echo "✓ Werkzeuge vorhanden?"
+for tool in nmap wireshark-cli john burpsuite msfconsole; do
+  which "$tool" >/dev/null 2>&1 && echo "  ✓ $tool" || echo "  ⚠️ $tool fehlt"
+done
+
+echo "✓ Kursverzeichnis unter /etc/skel vorhanden?"
+[ -d /etc/skel/kali-kurs ] || { echo "❌ kali-kurs-Verzeichnis fehlt"; exit 1; }
+[ -f /etc/skel/kali-kurs/LIES_MICH.txt ] || { echo "❌ LIES_MICH.txt fehlt"; exit 1; }
+
+echo "✓ Desktop-Starter vorhanden?"
+[ -d /etc/skel/Desktop ] && [ $(ls /etc/skel/Desktop/*.desktop 2>/dev/null | wc -l) -gt 0 ] || \
+  { echo "❌ Desktop-Starter fehlen"; exit 1; }
+
+echo ""
+echo "=== Provisioning erfolgreich abgeschlossen ($(date)) ==="
+echo "Das Image ist bereit für Terraform-Deployment."

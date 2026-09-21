@@ -60,28 +60,50 @@ chpasswd:
 %{ endfor ~}
 
 runcmd:
-  - systemctl restart ssh
+  # =================================================================
+  # SSH
+  # =================================================================
+  - systemctl restart ssh || { echo "FEHLER: SSH Restart fehlgeschlagen" >> /var/log/setup-complete.log; }
 
-  # Firewall: erst SSH und RDP freigeben, dann einschalten (nicht umgekehrt)
-  - ufw allow OpenSSH
-  - ufw allow 3389/tcp
-  - ufw --force enable
-
-  # Desktop-Dienst starten. enable --now zieht den Dienst gleich hoch, der
-  # anschliessende restart nimmt die frisch angelegten Benutzer mit.
-  - systemctl enable --now xrdp xrdp-sesman
-  - systemctl restart xrdp
-
-  # Setup-Log (OHNE Passwörter aus Sicherheitsgründen)
+  # =================================================================
+  # Firewall: erst SSH und RDP freigeben, dann einschalten
+  # Reihenfolge ist kritisch — falsche Reihenfolge sperrt dich aus.
+  # =================================================================
   - |
-    cat >> /var/log/setup-complete.log <<EOF
-    ================================================
-    Setup abgeschlossen: $(date)
-    ================================================
-    Teams: ${join(", ", unique_teams)}
-    Benutzer erstellt: ${length(all_users)}
-    ================================================
-    EOF
+    ufw allow OpenSSH || { echo "FEHLER: SSH-Firewall-Regel fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
+  - |
+    ufw allow 3389/tcp || { echo "FEHLER: RDP-Firewall-Regel fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
+  - |
+    ufw --force enable || { echo "FEHLER: UFW Enable fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
+
+  # =================================================================
+  # Desktop-Dienste starten
+  # =================================================================
+  - |
+    systemctl enable --now xrdp xrdp-sesman || \
+    { echo "FEHLER: XRDP Enable/Start fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
+  - |
+    systemctl restart xrdp || \
+    { echo "FEHLER: XRDP Restart fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
+
+  # =================================================================
+  # Verifikation: Kritische Services laufen
+  # =================================================================
+  - |
+    {
+      echo "=== Cloud-Init Verifikation ==="
+      echo "✓ SSH läuft? $(systemctl is-active ssh || echo STOPPED)"
+      echo "✓ XRDP läuft? $(systemctl is-active xrdp || echo STOPPED)"
+      echo "✓ Firewall aktiv? $(ufw status | head -1)"
+      echo "✓ Nutzer erstellt? $(getent passwd | grep -v '^root' | grep -v '^_' | wc -l) Einträge"
+      echo "Setup abgeschlossen: $(date)"
+    } >> /var/log/setup-complete.log
+  - |
+    [ "$(systemctl is-active ssh)" = "active" ] || \
+    { echo "FEHLER: SSH ist nicht aktiv" >> /var/log/setup-complete.log; exit 1; }
+  - |
+    [ "$(systemctl is-active xrdp)" = "active" ] || \
+    { echo "FEHLER: XRDP ist nicht aktiv" >> /var/log/setup-complete.log; exit 1; }
 
 # Abschlussnachricht
 final_message: |

@@ -7,6 +7,18 @@ der Unterschied ist die vollständige Desktop-Integration (XFCE über XRDP).
 
 ---
 
+## Deployment-Robustheit
+
+Diese App ist **idempotent** gebaut und enthält umfangreiche **Fehlerbehandlung**:
+
+- **provision.sh:** Trap-Handler für jeden Fehler, Post-Build-Verifikation, Syntax-Checks
+- **cloud-init:** Fehlerbehandlung pro Step, Service-Verifikation nach Startup, Logs im `/var/log/setup-complete.log`
+- **validate.sh:** Post-Deployment-Tests für alle kritischen Komponenten (SSH, XRDP, Firewall, Werkzeuge, Verzeichnisse)
+
+Fehler während des Builds oder der Initialization werden **nicht ignoriert** — der Packer-Build oder Terraform-Apply wird sofort abgebrochen.
+
+---
+
 ## 0. Vorbedingung: Kali-Basis-Image nach OpenStack
 
 Anders als bei Ubuntu liegt auf newstack **kein** Kali-Basis-Image bereit. Es
@@ -134,10 +146,33 @@ terraform apply
 terraform output -json user_accounts
 ```
 
-Darin stehen Benutzername, Passwort, IPv6-Adresse und Port 3389. Verbinden per
+Darin stehen Benutzername, Passwort, IPv6-Adresse und Port 3389.
+
+### Schritt 3b: Deployment validieren (empfohlen)
+
+Bevor du dich verbindest, prüfe mit dem Validierungs-Skript, ob alles korrekt
+konfiguriert ist:
+
+```bash
+export SSH_PASS="<passwort-aus-output>"
+./validate.sh <benutzername> <ipv6-adresse>
+```
+
+Das Skript prüft:
+- SSH-Verbindung
+- XRDP und XFCE-Services
+- Firewall-Regeln (SSH 22, RDP 3389)
+- Alle Werkzeuge installiert
+- Kursverzeichnis und Desktop-Starter
+- Logs auf Fehler
+
+**Fehlerbehandlung:** Wenn ein Check fehlschlägt, gibt das Skript Troubleshooting-Tipps aus.
+
+### Schritt 4: Verbinden
+
 Remotedesktop (Windows `mstsc`, Ziel `[<ipv6>]:3389`) oder alternativ per SSH.
 
-### Schritt 4: Wieder abräumen
+### Schritt 5: Wieder abräumen
 
 ```bash
 terraform destroy
@@ -212,3 +247,83 @@ tauschen.
 **Verwaiste RDP-Sitzungen.** Getrennte, nicht abgemeldete Sitzungen laufen
 weiter und belegen RAM der gemeinsamen VM. `provision.sh` und cloud-init setzen
 deshalb Sitzungsgrenzen in `sesman.ini` (`DisconnectedTimeLimit`).
+
+---
+
+## 6. Fehlerbehandlung und Debugging
+
+### Packer-Build bricht ab
+
+Häufige Fehler und Abhilfen:
+
+**„Error: image_name not found"**
+- Das Base-Image (z. B. `Kali Linux 2025.3`) liegt nicht in OpenStack
+- Lösung: Schritt 0 (Image hochladen) wiederholen
+
+**„Error: SSH timeout"**
+- Das Build-Image braucht länger zum Startup als `ssh_timeout` erlaubt (standard: 20m)
+- Lösung: Flavor vergrößern, oder `ssh_timeout` in `template.pkr.hcl` erhöhen
+
+**„Permission denied" bei Packer-Befehlen**
+- Credentials-Problem oder falscher Cloud-Name
+- Lösung: `export OS_CLOUD=openstack` prüfen, `openstack quota list` testen
+
+### Terraform apply schlägt fehl
+
+**„Error: missing required variable"**
+- Das `image_name` stimmt nicht zwischen Packer und Terraform
+- Lösung: In `meine.auto.tfvars` den genauen Packer-Output-Namen eintragen
+
+**„Error: Security group not found"**
+- Die SG-UUID in `variables.tf` existiert nicht im Projekt
+- Lösung: `openstack security group list` prüfen, UUID korrigieren
+
+**„Error: template rendering failed"**
+- Fehler im cloud-init-Template (meist YAML-Syntax oder kaputte `jsonencode()`)
+- Lösung: `terraform console` nutzen, Template manuell rendern und YAML-Checker (z.B. Python `yaml.load()`) nutzen
+
+### Deployment erfolgreich, aber VM reagiert nicht
+
+Das `validate.sh`-Skript wird hier zur Diagnose genutzt:
+
+**„SSH-Verbindung: FEHLER"**
+- SSH-Dienst lädt nicht, oder Firewall blockiert es
+- Lösung: `terraform output -json user_accounts` prüfen (falscher Port?), Sicherheitsgruppe prüfen, 180s-Warten einhalten
+
+**„XRDP läuft: FEHLER"**
+- XRDP ist nicht aktiv, wahrscheinlich Startup-Fehler
+- Lösung: SSH in die VM, `sudo journalctl -u xrdp -n 50` checken, `sudo systemctl restart xrdp`
+
+**„UFW (Firewall): FEHLER"**
+- Firewall-Setup in cloud-init ist fehlgeschlagen
+- Lösung: SSH, `sudo ufw status`, `sudo ufw allow 3389/tcp`, `sudo ufw --force enable`
+
+**„kali-kurs-Verzeichnis: FEHLER"**
+- Das Lernverzeichnis wurde nicht in `/etc/skel/` angelegt
+- Lösung: Packer-Build war nicht vollständig (Logs prüfen), oder provision.sh hat Fehler gehabt
+- Abfangen: `terraform destroy`, Image löschen, Packer erneut laufen lassen
+
+### VM ist oben, aber Nutzer konnten nicht angelegt werden
+
+Das `setup-complete.log` gibt Hinweise:
+
+```bash
+ssh <user>@<ipv6>
+sudo cat /var/log/setup-complete.log
+```
+
+Typische Fehler:
+- **„Passwort-Syntax fehlgeschlagen":** Ein generiertes Passwort hatte Spezialzeichen, die YAML nicht mochte → nicht möglich (die `override_special` und `jsonencode()` verhindern das), aber Logs prüfen
+- **„Benutzer-UID-Konflikt":** Mehrere Nutzer mit derselben UID-Derivation → teamnames müssen eindeutig sein
+- **„Gruppenerstellung fehlgeschlagen":** Ungültiger Gruppenname (Zeichen, führende Ziffer) → `local.group_names` prüft das
+
+### Idempotenz testen (Redeployment)
+
+Für Idempotenz-Checks kannst du `terraform apply` zweimal laufen lassen — das zweite Mal sollte **keine Änderungen** machen:
+
+```bash
+terraform plan   # sollte "No changes" zeigen
+terraform apply  # bestätigen mit "yes"
+```
+
+Sollte es Änderungen geben, liegt ein Problem vor (z. B. zufällig generierte Security-Group-Namen).
