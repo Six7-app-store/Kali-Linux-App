@@ -1,100 +1,95 @@
 # Kali Linux Desktop App
 
-Eine grafische Kali-Linux-Lernumgebung für Hochschulkurse zur IT-Sicherheit.
-Jeder Studierende bekommt einen eigenen Zugang auf einer gemeinsamen Kali-VM und
-arbeitet dort auf einem vollständigen XFCE-Desktop, den er per Remotedesktop
-(RDP) erreicht — mit vorbereiteten Desktop-Verknüpfungen, kuratierten Werkzeugen
-und einem Übungsverzeichnis.
+Kali-VM mit XFCE-Desktop und curatierten Security-Werkzeugen für OpenStack App Store.
 
-> **Nur für autorisierte Übungen.** Die enthaltenen Werkzeuge dürfen
-> ausschließlich auf Systemen eingesetzt werden, die der Dozent ausdrücklich
-> freigegeben hat. Scans oder Angriffe auf fremde Systeme ohne Erlaubnis sind
-> strafbar.
+## Features
 
-## Vorinstallierte Software
+- **XFCE-Desktop** per XRDP (Port 3389, über IPv6)
+- **Kali-Werkzeuge:** nmap, wireshark, burpsuite, metasploit, john, hydra, sqlmap, gobuster, nikto, aircrack-ng
+- **Desktop-Integration:** Starter, Autostart, Kursverzeichnis `~/kali-kurs/`
+- **Multi-User:** Geteilte VM, pro Nutzer eigene RDP-Session + Account
+- **Robust:** Error-Handling, Post-Build/Post-Deployment-Tests
 
-**Im Image (per Packer):**
+## Quickstart
 
-- XFCE-Desktop mit XRDP (grafischer Zugang über Port 3389)
-- Kali-Werkzeuge (`kali-linux-headless`) plus kuratierte Auswahl:
-  nmap, wireshark, burpsuite, metasploit-framework, john, hydra, sqlmap,
-  gobuster, dirb, nikto, aircrack-ng, netcat
-- Desktop-Anwendungen: Firefox ESR, XFCE-Terminal, Thunar, Mousepad
-- Wörterlisten unter `/usr/share/wordlists/`
+**Vorbedingung:** Kali-Cloud-Image nach OpenStack hochladen (siehe `ANLEITUNG.md` §0)
 
-**Beim ersten Boot (per cloud-init):**
+```bash
+# Image bauen
+cd packer
+packer init .
+packer build -var image_name=kali-app-v1 .
 
-- curl, wget, git, htop, nano, vim, net-tools
+# VM erzeugen
+cd ../terraform
+cat > meine.auto.tfvars <<EOF
+image_name = "kali-app-v1"
+users = { "Team" = [{ email = "student@dhbw.de" }] }
+EOF
 
-## Desktop-Integration
+terraform apply
 
-Jeder Nutzer startet in einer fertig eingerichteten Sitzung:
+# Zugangsdaten
+terraform output user_accounts
 
-- **Desktop-Starter** für Terminal, Kurs-Übungen, Firefox, Wireshark und Burp Suite
-- **Willkommensfenster** beim ersten Login mit der Kurzanleitung
-- **Dateizuordnungen** (`.txt` → Mousepad, `.pcap` → Wireshark, `.html` → Firefox)
-- **Kursverzeichnis** `~/kali-kurs/`:
+# Validieren
+export SSH_PASS="<passwort>"
+../validate.sh <username> <ipv6-address>
 
+# Verbinden
+# Windows: mstsc -> [2001:7c0:...]:3389
+# Linux: ssh username@2001:7c0:...
 ```
-~/kali-kurs/
-├── LIES_MICH.txt              ← Kurzreferenz, Spielregeln, Werkzeugübersicht
-└── uebungen/
-    ├── 01-recon/
-    ├── 02-portscan/
-    ├── 03-traffic-analyse/
-    ├── 04-web-schwachstellen/
-    └── 05-passwoerter/
-```
-
-## User-Management
-
-- **Ein Account pro Nutzer**, abgeleitet aus der E-Mail-Adresse
-  (z. B. `alice.smith@dhbw.de` → Benutzername `alicesmith`)
-- Alle Nutzer aller Teams landen auf **einer gemeinsamen VM**
-- Jeder Nutzer erhält ein automatisch generiertes, zufälliges Passwort
-- Login per Remotedesktop (RDP) oder SSH, jeweils mit Passwort
 
 ## VM-Deployment
 
 | | |
 |---|---|
-| VMs gesamt | **1** (geteilt von allen Teams und Nutzern) |
-| VMs pro Team | — |
-| VMs pro Nutzer | — |
-| Flavor | `gp1.medium` (größer als die Terminal-App wegen der Desktops) |
-| Floating IP | Nein — Zugang über IPv6 (siehe „Verbinden") |
-
-## Verbinden
-
-Die VM ist ausschließlich über **IPv6** erreichbar (die feste IPv4 im
-DHBWV6-Netz ist eine private NAT-Adresse). Zugang nur aus dem **Campusnetz oder
-per VPN**.
-
-**Windows (Remotedesktopverbindung):**
-
-1. `mstsc` starten
-2. Als Computer die IPv6-Adresse **in eckigen Klammern** mit Port eingeben:
-   `[2001:7c0:…]:3389` — ohne die Klammern liest der Client den letzten `:` als
-   Port-Trenner
-3. Mit Benutzername und Passwort aus den Zugangsdaten anmelden
-
-**Terminal (alternativ):** `ssh benutzername@2001:7c0:…`
+| VMs | 1 (geteilt) |
+| Flavor | gp1.medium |
+| Netz | IPv6 (DHBWV6) |
+| RDP-Port | 3389 (neue Security Group) |
 
 ## Konfigurierbare Variablen
 
-| Variable | Beschreibung | Pflicht |
+| Variable | Beschreibung | Default |
 |---|---|---|
-| `network_uuid` | UUID des internen Netzwerks | Ja |
-| `shared_secgroup_id` | ID der gemeinsamen Security Group | Ja |
-| `rdp_source_cidr` | IPv6-Präfix, das auf Port 3389 zugreifen darf | Nein |
-| `floating_ip_pool` | Name des External Networks (derzeit ungenutzt) | Nein |
+| `network_uuid` | Netzwerk-ID | 9b579624-... |
+| `shared_secgroup_id` | Security Group | 7ca4f889-... |
+| `rdp_source_cidr` | RDP-Quellpräfix (IPv6) | ::/0 |
+| `floating_ip_pool` | External Network | DHBW (ungenutzt) |
 
-## Deployment-Dauer
+## Dokumentation
 
-| Schritt | Dauer (ca.) |
-|---|---|
-| Packer Image Build | 20–35 min |
-| Terraform apply | 3–5 min |
-| **Gesamt (Erstdeployment)** | **25–40 min** |
+- **ANLEITUNG.md:** Deployment-Anleitung (manuell + App Store)
+- **TROUBLESHOOTING.md:** Fehlerbehandlung
+- **packer/scripts/0{1-5}.sh:** Build-Steps (gut strukturiert)
+- **terraform/:** Infrastruktur (HCL)
+- **validate.sh:** Post-Deployment-Test
 
-Bei Folge-Deployments (Image bereits gebaut) nur Terraform: **3–5 min**.
+## Architektur
+
+**Build-Zeit:**
+1. `01-base.sh` — apt, debconf
+2. `02-desktop.sh` — XFCE, XRDP (IPv6-Binding!)
+3. `03-tools.sh` — Kali-Werkzeuge
+4. `04-integration.sh` — Desktop-Starter, Kursverzeichnis
+5. `05-verify.sh` — Post-Build-Checks
+
+**Deploy-Zeit (cloud-init):**
+- Nutzer + Gruppen anlegen
+- Firewall konfigurieren (SSH 22, RDP 3389)
+- Services starten + prüfen
+
+## Spielregeln (für Studierende)
+
+Diese Werkzeuge dürfen **nur auf freigegebenen Zielen** eingesetzt werden:
+- Diese VM selbst
+- Vom Dozenten freigegebene Übungs-Umgebung
+- scanme.nmap.org
+
+**Scans/Angriffe auf fremde Systeme ohne Erlaubnis sind strafbar** (§ 202a-c StGB).
+
+---
+
+**Supportdokumentation:** Siehe `ANLEITUNG.md` und `TROUBLESHOOTING.md`
