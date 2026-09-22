@@ -6,24 +6,41 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 trap 'echo "❌ FEHLER in $0 Zeile $LINENO"; exit 1' ERR
 
+# INI-Schluessel setzen und das Ergebnis pruefen.
+#
+# "sed -i" meldet auch dann Erfolg, wenn das Muster nirgends passt. Ein
+# "sed ... || fallback" waere also wirkungslos - der Fallback liefe nie, und
+# eine fehlende Zeile fiele erst beim ersten RDP-Versuch auf.
+set_ini_key() {
+  local file="$1" section="$2" key="$3" value="$4"
+
+  if grep -qE "^#?${key}=" "$file"; then
+    sed -i "s|^#\?${key}=.*|${key}=${value}|" "$file"
+  else
+    sed -i "/^\[${section}\]/a ${key}=${value}" "$file"
+  fi
+
+  grep -qxF "${key}=${value}" "$file" || {
+    echo "❌ $file: ${key}=${value} konnte nicht gesetzt werden"
+    exit 1
+  }
+}
+
 apt-get install -y kali-linux-headless kali-desktop-xfce
 
 apt-get install -y xrdp xorgxrdp dbus-x11 firefox-esr xfce4-terminal thunar mousepad xdg-user-dirs
 
 # IPv6-Binding (kritisch — IPv4 ist im DHBWV6-Netz nicht erreichbar)
-sed -i 's|^port=.*|port=tcp6://:3389|' /etc/xrdp/xrdp.ini
-sed -i 's|^#\?enable_ipv6=.*|enable_ipv6=true|' /etc/xrdp/xrdp.ini || \
-  sed -i '/^\[Globals\]/a enable_ipv6=true' /etc/xrdp/xrdp.ini
+set_ini_key /etc/xrdp/xrdp.ini Globals port "tcp6://:3389"
+set_ini_key /etc/xrdp/xrdp.ini Globals enable_ipv6 true
 
-printf 'net.ipv6.bindv6only = 0\n' | tee /etc/sysctl.d/60-xrdp-dualstack.conf > /dev/null
+printf 'net.ipv6.bindv6only = 0\n' > /etc/sysctl.d/60-xrdp-dualstack.conf
 
-# XRDP-Sitzungsgrenzen
-sed -i \
-  -e 's|^MaxSessions=.*|MaxSessions=50|' \
-  -e 's|^KillDisconnected=.*|KillDisconnected=false|' \
-  -e 's|^DisconnectedTimeLimit=.*|DisconnectedTimeLimit=3600|' \
-  -e 's|^IdleTimeLimit=.*|IdleTimeLimit=0|' \
-  /etc/xrdp/sesman.ini
+# XRDP-Sitzungsgrenzen (mehrere Studierende gleichzeitig auf einer VM)
+set_ini_key /etc/xrdp/sesman.ini Sessions MaxSessions 50
+set_ini_key /etc/xrdp/sesman.ini Sessions KillDisconnected false
+set_ini_key /etc/xrdp/sesman.ini Sessions DisconnectedTimeLimit 3600
+set_ini_key /etc/xrdp/sesman.ini Sessions IdleTimeLimit 0
 
 cat > /etc/xrdp/startwm.sh <<'EOF'
 #!/bin/sh
@@ -65,4 +82,4 @@ systemctl enable xrdp xrdp-sesman
 
 # SSH Passwort-Auth vorbereiten
 mkdir -p /etc/ssh/sshd_config.d
-printf 'PasswordAuthentication yes\n' | tee /etc/ssh/sshd_config.d/60-password-auth.conf > /dev/null
+printf 'PasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/60-password-auth.conf

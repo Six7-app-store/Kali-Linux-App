@@ -28,7 +28,7 @@ touch "$STAMP"
 exec mousepad "$HOME/kali-kurs/LIES_MICH.txt"
 EOF
 
-chmod 755 /usr/local/bin/kali-{kurs-oeffnen,kurs-lies-mich,willkommen}
+chmod 755 /usr/local/bin/kali-kurs-oeffnen /usr/local/bin/kali-kurs-lies-mich /usr/local/bin/kali-willkommen
 
 # Desktop-Verzeichnis
 mkdir -p "$SKEL/Desktop" "$SKEL/.config/autostart" "$SKEL/.config/xfce4/terminal"
@@ -39,9 +39,9 @@ XDG_DOWNLOAD_DIR="$HOME/Downloads"
 XDG_DOCUMENTS_DIR="$HOME/Documents"
 EOF
 
-printf 'enabled=False\n' | tee /etc/xdg/user-dirs.conf > /dev/null
+printf 'enabled=False\n' > /etc/xdg/user-dirs.conf
 
-printf '#!/bin/sh\nexec /usr/bin/startxfce4\n' | tee "$SKEL/.xsession" > /dev/null
+printf '#!/bin/sh\nexec /usr/bin/startxfce4\n' > "$SKEL/.xsession"
 chmod 755 "$SKEL/.xsession"
 
 # Desktop-Starter
@@ -51,7 +51,7 @@ for name in "kurs-uebungen:Kurs-Übungen:Übungsaufgaben:folder-documents:kali-k
             "firefox:Firefox:Webbrowser:firefox-esr:firefox-esr %u" \
             "wireshark:Wireshark:Netzwerkverkehr analysieren:wireshark:wireshark" \
             "burpsuite:Burp Suite:Web-Proxy:burpsuite:burpsuite"; do
-  IFS=':' read id title comment icon cmd <<< "$name"
+  IFS=':' read -r id title comment icon cmd <<< "$name"
   cat > "$SKEL/Desktop/$id.desktop" <<DESKTOP
 [Desktop Entry]
 Version=1.0
@@ -99,11 +99,11 @@ EOF
 
 # Kursverzeichnis
 KURS_DIR="$SKEL/kali-kurs"
-mkdir -p "$KURS_DIR/uebungen"/{01-recon,02-portscan,03-traffic-analyse,04-web-schwachstellen,05-passwoerter}
+mkdir -p "$KURS_DIR"
 
 cat > "$KURS_DIR/LIES_MICH.txt" <<'KURS'
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                    KALI LINUX – KURZANLEITUNG                              ║
+║                        KALI LINUX – KURZANLEITUNG                            ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
 Willkommen auf deiner Kali-VM!
@@ -118,36 +118,42 @@ DESKTOP & SITZUNG:
   - Dateimanager: Thunar (Desktop-Starter)
 
 WERKZEUGE (eingebaute Hilfe):
-  nmap, wireshark, tcpdump, netcat           — Netzwerk
-  burpsuite, nikto, gobuster, dirb, sqlmap  — Web
-  john, hydra, openssl                       — Passwörter
-  aircrack-ng                                — WLAN
-  metasploit-framework (msfconsole)          — Framework
+  nmap, wireshark, tcpdump, netcat            — Netzwerk
+  burpsuite, nikto, gobuster, dirb, sqlmap    — Web
+  john, hydra, openssl                        — Passwörter
+  aircrack-ng                                 — WLAN
+  metasploit-framework (msfconsole)           — Framework
 
 SYSTEM & NETZ:
-  ip a                — Interfaces
-  ss -tlnp            — Lauschende Ports
+  ip a                 — Interfaces
+  ss -tlnp             — Lauschende Ports
   systemctl status ssh — Service-Status
 
 Übungen stehen in ~/kali-kurs/uebungen/
-KRUS
+KURS
 
-chmod -R 755 "$KURS_DIR"
-find "$KURS_DIR" -type f -name '*.txt' -exec chmod 644 {} +
+# Aufgaben-Templates.
+#
+# Verzeichnisnamen stehen ausgeschrieben in der Liste: ein Glob im Ziel einer
+# Umleitung ("uebungen/0$i-*/aufgaben.txt") wird in Anfuehrungszeichen nicht
+# expandiert und die Umleitung schlaegt fehl.
+UEBUNGEN=(
+  "01-recon|Informationsbeschaffung (Recon)"
+  "02-portscan|Portscan"
+  "03-traffic-analyse|Netzwerkverkehr analysieren"
+  "04-web-schwachstellen|Webanwendungen prüfen"
+  "05-passwoerter|Passwörter und Hashes"
+)
 
-# Aufgaben-Templates
-for i in 1 2 3 4 5; do
-  case $i in
-    1) title="Informationsbeschaffung (Recon)";;
-    2) title="Portscan";;
-    3) title="Netzwerkverkehr analysieren";;
-    4) title="Webanwendungen prüfen";;
-    5) title="Passwörter und Hashes";;
-  esac
+for eintrag in "${UEBUNGEN[@]}"; do
+  dir="${eintrag%%|*}"
+  title="${eintrag##*|}"
+  nummer="${dir%%-*}"
 
-  cat > "$KURS_DIR/uebungen/0$i-*/aufgaben.txt" <<EOF
-ÜBUNG $i – $title
-$(printf '=%.0s' {1..50})
+  mkdir -p "$KURS_DIR/uebungen/$dir"
+  cat > "$KURS_DIR/uebungen/$dir/aufgaben.txt" <<EOF
+ÜBUNG $nummer – $title
+==================================================
 
 Lernziel:
   [Hier steht das Lernziel]
@@ -158,3 +164,6 @@ Werkzeuge: [Siehe LIES_MICH.txt]
 Vorgehen: [Schritt-für-Schritt-Aufgaben]
 EOF
 done
+
+chmod -R 755 "$KURS_DIR"
+find "$KURS_DIR" -type f -name '*.txt' -exec chmod 644 {} +

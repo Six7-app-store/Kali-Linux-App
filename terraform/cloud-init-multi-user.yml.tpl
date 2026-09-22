@@ -2,8 +2,16 @@
 
 ssh_pwauth: true
 
+# Je ein Listeneintrag pro Paket. Eine einzelne Zeile mit Leerzeichen waere
+# EIN Paketname - apt suchte dann nach "curl wget git ..." und schluege fehl.
 packages:
-  - curl wget git htop nano vim net-tools
+  - curl
+  - wget
+  - git
+  - htop
+  - nano
+  - vim
+  - net-tools
 
 groups:
 %{ for group in unique_groups ~}
@@ -37,11 +45,13 @@ chpasswd:
       type: text
 %{ endfor ~}
 
+# Keine ufw-Regeln: ufw ist im Kali-Cloud-Image nicht installiert, die Befehle
+# schlugen hier still fehl. Gefiltert wird in OpenStack ohnehin eine Ebene
+# tiefer durch die Security Groups (SSH via shared_secgroup_id, RDP via der
+# App-eigenen Gruppe in main.tf) - eine Host-Firewall waere nur eine zweite,
+# unabhaengig zu pflegende Wahrheit.
 runcmd:
   - systemctl restart ssh || { echo "SSH Restart fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
-  - ufw allow OpenSSH || { echo "SSH UFW fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
-  - ufw allow 3389/tcp || { echo "RDP UFW fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
-  - ufw --force enable || { echo "UFW enable fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
   - systemctl enable --now xrdp xrdp-sesman || { echo "XRDP enable fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
   - systemctl restart xrdp || { echo "XRDP restart fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
   - |
@@ -49,14 +59,16 @@ runcmd:
   - |
     [ "$(systemctl is-active xrdp)" = "active" ] || { echo "XRDP nicht aktiv" >> /var/log/setup-complete.log; exit 1; }
   - |
-    cat >> /var/log/setup-complete.log <<EOF
+    # Nicht nur "laeuft der Dienst", sondern "lauscht er auf IPv6". Ein auf
+    # IPv4 gebundener XRDP waere im DHBWV6-Netz nicht erreichbar.
+    ss -tln | grep -q '\[::\]:3389' || { echo "XRDP lauscht nicht auf IPv6:3389" >> /var/log/setup-complete.log; exit 1; }
+  - |
+    cat >> /var/log/setup-complete.log <<'SETUPLOG'
     ================================================
-    Setup erfolgreich: $(date)
+    Setup erfolgreich
     ================================================
-    Teams: ${join(", ", unique_teams)}
-    Nutzer: ${length(all_users)}
-    ================================================
-    EOF
+    SETUPLOG
+  - date >> /var/log/setup-complete.log
 
 final_message: |
   ================================================

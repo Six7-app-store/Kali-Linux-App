@@ -1,0 +1,120 @@
+# Prueft die Bash-Skripte, die die eigentliche Arbeit machen.
+#
+# Anlass: ein unterminiertes Here-Document in 04-integration.sh hat den
+# restlichen Skriptquelltext in eine Kursdatei geschrieben und die letzten 25
+# Zeilen nie ausgefuehrt. Weder "set -e" noch der ERR-trap noch die
+# Post-Build-Checks haben das gesehen - "bash -n" meldet es sofort, allerdings
+# nur als Warnung auf stderr und mit Exit-Code 0. Deshalb gilt hier jede
+# Ausgabe als Fehler.
+
+name: 'Shell'
+
+on:
+  push:
+  pull_request:
+    branches: ["main"]
+  release:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    name: 'Shell'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # "packer validate -syntax-only" prueft NICHT, ob die Dateien in der
+      # scripts-Liste existieren. Genau daran ist der Build vorher gescheitert:
+      # die Steps lagen im Repo, waren aber nicht eingetragen und wurden nie
+      # auf die Build-VM hochgeladen.
+      - name: Build-Steps sind vollstaendig eingetragen
+        run: |
+          fehler=0
+          eingetragen="$(grep -oE '"scripts/[^"]+\.sh"' packer/template.pkr.hcl | tr -d '"' | sort)"
+
+          for s in $eingetragen; do
+            if [ ! -f "packer/$s" ]; then
+              echo "::error file=packer/template.pkr.hcl::$s ist eingetragen, existiert aber nicht"
+              fehler=1
+            fi
+          done
+
+          vorhanden="$(cd packer && find scripts -name '*.sh' -type f | sort)"
+          for f in $vorhanden; do
+            if ! printf '%s\n' "$eingetragen" | grep -qxF "$f"; then
+              echo "::error file=packer/$f::liegt im Repo, fehlt aber in der scripts-Liste - wird nie hochgeladen"
+              fehler=1
+            fi
+          done
+
+          if [ "$fehler" -eq 0 ]; then
+            echo "Alle Build-Steps eingetragen:"
+            printf '  %s\n' $eingetragen
+          fi
+          exit "$fehler"
+
+      - name: Syntaxpruefung (jede Ausgabe ist ein Fehler)
+        run: |
+          fehler=0
+          for f in packer/scripts/*.sh validate.sh; do
+            if ! out="$(bash -n "$f" 2>&1)"; then
+              echo "::error file=$f::Syntaxfehler"
+              fehler=1
+            fi
+            if [ -n "$out" ]; then
+              echo "::error file=$f::$out"
+              fehler=1
+            fi
+          done
+          if [ "$fehler" -eq 0 ]; then echo "Alle Skripte sauber."; fi
+          exit "$fehler"
+
+      # shellcheck ist auf ubuntu-latest vorinstalliert.
+      # --severity=warning laesst reine Stilhinweise durch, faengt aber
+      # ausgelaufene Here-Documents, nicht expandierte Globs in Umleitungen
+      # und lokal statt remote expandierte $(...) ab.
+      - name: ShellCheck
+        run: shellcheck --severity=warning --shell=bash packer/scripts/*.sh validate.sh
+
+      - name: Kursverzeichnis wirklich bauen
+        run: |
+          # 04-integration.sh gegen ein Wegwerf-Wurzelverzeichnis ausfuehren
+          # und das Ergebnis pruefen. Praesenzpruefungen allein haben den
+          # Here-Document-Fehler nicht gefunden - die Datei war ja da.
+          ROOT="$(mktemp -d)"
+          mkdir -p "$ROOT/etc/skel" "$ROOT/usr/local/bin" "$ROOT/etc/xdg"
+          sed \
+            -e "s#^SKEL=\"/etc/skel\"#SKEL=\"$ROOT/etc/skel\"#" \
+            -e "s#/usr/local/bin#$ROOT/usr/local/bin#g" \
+            -e "s#/etc/xdg/user-dirs.conf#$ROOT/etc/xdg/user-dirs.conf#" \
+            packer/scripts/04-integration.sh > "$ROOT/run.sh"
+          bash "$ROOT/run.sh"
+
+          KURS="$ROOT/etc/skel/kali-kurs"
+          fehler=0
+
+          n="$(find "$KURS/uebungen" -name aufgaben.txt -type f | wc -l)"
+          [ "$n" -eq 5 ] || { echo "::error::aufgaben.txt: $n von 5"; fehler=1; }
+
+          grep -q 'KURZANLEITUNG' "$KURS/LIES_MICH.txt" \
+            || { echo "::error::LIES_MICH.txt ohne Kurzanleitung"; fehler=1; }
+
+          if grep -qE '^(chmod|find|for|cat|UEBUNGEN)' "$KURS/LIES_MICH.txt"; then
+            echo "::error::LIES_MICH.txt enthaelt Skriptquelltext (Here-Document ausgelaufen)"
+            fehler=1
+          fi
+
+          d="$(find "$ROOT/etc/skel/Desktop" -name '*.desktop' -type f | wc -l)"
+          [ "$d" -ge 6 ] || { echo "::error::Desktop-Starter: $d von 6"; fehler=1; }
+
+          if [ "$fehler" -eq 0 ]; then echo "Kursverzeichnis korrekt aufgebaut."; fi
+          exit "$fehler"

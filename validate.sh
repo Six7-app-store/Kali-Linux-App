@@ -2,6 +2,10 @@
 set -euo pipefail
 
 # Post-Deployment Verifikation
+#
+# WICHTIG: Alle Remote-Befehle stehen in EINFACHEN Anfuehrungszeichen. In
+# doppelten wuerde $(...) auf dem lokalen Rechner expandiert, nicht auf der VM
+# - der Test prueft dann die eigene Maschine und ist wertlos.
 
 if [ $# -lt 2 ]; then
   echo "Usage: $0 <username> <ipv6-address> [password]"
@@ -15,20 +19,29 @@ PASSWORD="${3:-${SSH_PASS:-}}"
 
 [ -z "$PASSWORD" ] && { echo "❌ Passwort erforderlich"; exit 1; }
 
+command -v sshpass >/dev/null || {
+  echo "❌ sshpass fehlt (apt-get install sshpass)"
+  exit 1
+}
+
 set +e
+
+SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
+
+FAILED=0
 
 run_check() {
   local name="$1"
   local cmd="$2"
-  echo -n "  ✓ $name... "
+  printf '  %-34s ' "$name..."
 
   local output
-  output=$(sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-    "$USERNAME@$IPV6" "$cmd" 2>&1) || {
+  if ! output=$(sshpass -p "$PASSWORD" ssh "${SSH_OPTS[@]}" "$USERNAME@$IPV6" "$cmd" 2>&1); then
     echo "FEHLER"
-    echo "    $output"
+    [ -n "$output" ] && echo "    $output"
+    FAILED=$((FAILED + 1))
     return 1
-  }
+  fi
   echo "OK"
   return 0
 }
@@ -37,42 +50,46 @@ echo "=== Deployment Validation ==="
 echo "Ziel: $USERNAME@$IPV6"
 echo ""
 
-sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  -o ConnectTimeout=5 "$USERNAME@$IPV6" "echo OK" >/dev/null 2>&1 || {
+sshpass -p "$PASSWORD" ssh "${SSH_OPTS[@]}" -o ConnectTimeout=10 \
+  "$USERNAME@$IPV6" 'echo OK' >/dev/null 2>&1 || {
   echo "❌ SSH-Verbindung fehlgeschlagen"
-  echo "   IPv6-Adresse korrekt? Firewall offen? cloud-init noch läuft?"
+  echo "   IPv6-Adresse korrekt? Security Group offen? cloud-init noch am Laufen?"
+  echo "   Hinweis: nach 'terraform apply' dauert cloud-init noch ~3 Minuten."
   exit 1
 }
 
-FAILED=0
+echo "=== Dienste ==="
+run_check "SSH" 'systemctl is-active ssh'
+run_check "XRDP" 'systemctl is-active xrdp'
+run_check "XRDP-SessionManager" 'systemctl is-active xrdp-sesman'
 
-echo "=== Systemprüfungen ==="
-run_check "SSH" "systemctl is-active ssh" || ((FAILED++))
-run_check "XRDP" "systemctl is-active xrdp" || ((FAILED++))
-run_check "XRDP-SessionManager" "systemctl is-active xrdp-sesman" || ((FAILED++))
-run_check "UFW" "ufw status | head -1" || ((FAILED++))
-run_check "Port 22 offen" "ufw status | grep 22" || ((FAILED++))
-run_check "Port 3389 offen" "ufw status | grep 3389" || ((FAILED++))
+# Der eigentliche Knackpunkt: nicht "laeuft xrdp", sondern "ist er ueber IPv6
+# erreichbar". Eine IPv4-Bindung waere im DHBWV6-Netz nutzlos.
+run_check "XRDP lauscht auf IPv6:3389" 'ss -tln | grep 3389 | grep -q "::"'
 
 echo ""
 echo "=== Werkzeuge ==="
-for tool in nmap wireshark john burpsuite; do
-  run_check "$tool" "which $tool" || ((FAILED++))
+for tool in nmap wireshark tcpdump john burpsuite msfconsole; do
+  run_check "$tool" "command -v $tool"
 done
 
 echo ""
 echo "=== Kursverzeichnis ==="
-run_check "~/kali-kurs" "[ -d ~/kali-kurs ] && echo OK" || ((FAILED++))
-run_check "Desktop-Starter" "[ $(ls ~/Desktop/*.desktop 2>/dev/null | wc -l) -gt 0 ] && echo OK" || ((FAILED++))
+# $HOME statt ~: in einfachen Anführungszeichen wird beides erst auf der VM
+# ausgewertet, aber die Tilde bliebe in manchen Kontexten stehen.
+run_check "kali-kurs" 'test -d $HOME/kali-kurs'
+run_check "LIES_MICH.txt lesbar" 'grep -q KURZANLEITUNG $HOME/kali-kurs/LIES_MICH.txt'
+run_check "5x aufgaben.txt" 'test "$(find $HOME/kali-kurs/uebungen -name aufgaben.txt -type f | wc -l)" -eq 5'
+run_check "Desktop-Starter" 'ls $HOME/Desktop/*.desktop >/dev/null 2>&1'
 
 echo ""
-if [ $FAILED -eq 0 ]; then
+if [ "$FAILED" -eq 0 ]; then
   echo "✅ Deployment erfolgreich!"
   echo "   RDP: mstsc -> [$IPV6]:3389"
   echo "   SSH: ssh $USERNAME@$IPV6"
   exit 0
-else
-  echo "❌ $FAILED Fehler gefunden"
-  echo "   Siehe TROUBLESHOOTING.md"
-  exit 1
 fi
+
+echo "❌ $FAILED Fehler gefunden"
+echo "   Siehe TROUBLESHOOTING.md"
+exit 1

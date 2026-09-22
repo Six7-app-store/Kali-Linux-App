@@ -27,33 +27,29 @@ provider "openstack" {
 ############################
 
 locals {
-  # Diese Werte sind App-spezifisch und werden vom App-Entwickler definiert
   app_name = "kali-user"
 
   # Groesser als bei der Ubuntu-Terminal-App: ein gemeinsamer XFCE-Desktop mit
   # mehreren gleichzeitigen RDP-Sitzungen plus Werkzeugen wie Burp oder
   # Metasploit braucht deutlich mehr RAM als eine reine Terminal-VM.
-  # TODO: Flavor-Namen gegen `openstack flavor list` im Zielprojekt pruefen.
   flavor   = "gp1.medium"
   key_pair = "" # Leer = nur Passwort-Auth
 
-  # Keine Floating IP. Sie liesse sich in diesem Projekt zwar anlegen,
-  # aber nicht zuweisen - zwischen VM-Subnetz und externem Netz fehlt
-  # der Router ("External network ... is not reachable from subnet").
-  #
-  # Oeffentlich erreichbar ist die Instanz ueber IPv6; die feste IPv4
-  # im DHBWV6-Netz ist eine private NAT-Adresse (10.200.x.x). Deshalb
-  # geben die outputs fixed_ip_v6 als Verbindungsziel aus.
-  enable_floating_ip = false
-
   metadata = {}
 }
+
+# Keine Floating IP: sie liesse sich in diesem Projekt zwar anlegen, aber nicht
+# zuweisen - zwischen VM-Subnetz und externem Netz fehlt der Router
+# ("External network ... is not reachable from subnet").
+#
+# Oeffentlich erreichbar ist die Instanz ueber IPv6; die feste IPv4 im
+# DHBWV6-Netz ist eine private NAT-Adresse (10.200.x.x). Deshalb geben die
+# outputs fixed_ip_v6 als Verbindungsziel aus.
 
 ############################
 # USER MANAGEMENT (CONTRACT)
 ############################
 
-# Flatten users from teams - EXAKT wie im Contract vorgegeben
 locals {
   # Team -> Linux-Gruppenname. Gruppen muessen mit einem Buchstaben beginnen,
   # daher das Praefix fuer Teams, die mit einer Ziffer anfangen.
@@ -65,13 +61,34 @@ locals {
     )
   }
 
+  all_emails = distinct(flatten([
+    for team, members in var.users : [for member in members : member.email]
+  ]))
+
+  # E-Mail -> Linux-Benutzername.
+  #
+  # Trennzeichen im Lokalteil werden zu "-", nicht geloescht: wuerde man sie
+  # ersatzlos entfernen, landeten "max.mustermann@dhbw.de" und
+  # "maxmustermann@dhbw.de" im selben Account. Zwei Studierende teilten sich
+  # dann eine Sitzung, und das zweite chpasswd ueberschriebe das erste
+  # Passwort - der Output wiese einen Zugang aus, der nicht funktioniert.
+  username_stems = {
+    for email in local.all_emails :
+    email => trim(replace(lower(split("@", email)[0]), "/[^a-z0-9]+/", "-"), "-")
+  }
+
+  usernames_by_email = {
+    for email, stem in local.username_stems :
+    email => can(regex("^[a-z]", stem)) ? stem : "u-${stem}"
+  }
+
   all_users = flatten([
     for team, members in var.users : [
       for member in members : {
         id       = "${team}-${replace(split("@", member.email)[0], ".", "-")}"
         team     = team
         email    = member.email
-        username = lower(replace(split("@", member.email)[0], ".", ""))
+        username = local.usernames_by_email[member.email]
 
         # Linux-Gruppenname. "Team #1" ist als Gruppe unzulaessig (Grossbuchstabe,
         # Leerzeichen, '#'), deshalb auf [a-z0-9_-] herunterbrechen: "team-1".
@@ -81,16 +98,9 @@ locals {
     ]
   ])
 
-  # Eindeutige Teams extrahieren
-  unique_teams = distinct([for user in local.all_users : user.team])
-
-  # Dieselben Teams als Linux-Gruppennamen
+  unique_teams  = distinct([for user in local.all_users : user.team])
   unique_groups = distinct([for user in local.all_users : user.group])
 
-  # VM-Anzahl = 1 (eine gemeinsame VM)
-  vm_count = 1
-
-  # Liste aller Usernamen und E-Mails
   usernames = [for user in local.all_users : user.username]
   emails    = [for user in local.all_users : user.email]
   user_ids  = [for user in local.all_users : user.id]
@@ -112,12 +122,6 @@ resource "random_password" "user_passwords" {
 data "openstack_images_image_v2" "image" {
   name        = var.image_name
   most_recent = true
-}
-
-# External network nur nötig, wenn Floating IP aktiviert ist
-data "openstack_networking_network_v2" "external" {
-  count = local.enable_floating_ip ? 1 : 0
-  name  = var.floating_ip_pool
 }
 
 # -----------------------------------------------------------------------------
@@ -179,14 +183,16 @@ resource "openstack_compute_instance_v2" "shared_vm" {
     users  = join(",", local.usernames)
     emails = join(",", local.emails)
   })
-}
 
-# -----------------------------------------------------------------------------
-# Optional Floating IP (eine für die gemeinsame VM)
-# -----------------------------------------------------------------------------
-resource "openstack_networking_floatingip_v2" "fip" {
-  count = local.enable_floating_ip ? 1 : 0
-  pool  = data.openstack_networking_network_v2.external[0].name
+  lifecycle {
+    # Schon beim plan abbrechen, nicht erst wenn cloud-init still einen
+    # Account ueberschreibt. Tritt auf, wenn dieselbe Person in zwei Teams
+    # steht oder zwei Adressen auf denselben Namen abbilden.
+    precondition {
+      condition     = length(local.usernames) == length(distinct(local.usernames))
+      error_message = "Roster ergibt doppelte Linux-Benutzernamen: ${join(", ", local.usernames)}. Jede Person darf nur einmal vorkommen."
+    }
+  }
 }
 
 # Warten bis cloud-init die Benutzer angelegt UND den Desktop gestartet hat.
@@ -196,26 +202,4 @@ resource "openstack_networking_floatingip_v2" "fip" {
 resource "time_sleep" "wait_for_vm" {
   depends_on      = [openstack_compute_instance_v2.shared_vm]
   create_duration = "180s"
-}
-
-# Port-ID der VM finden
-data "openstack_networking_port_v2" "vm_port" {
-  count     = local.enable_floating_ip ? 1 : 0
-  device_id = openstack_compute_instance_v2.shared_vm.id
-  depends_on = [
-    openstack_compute_instance_v2.shared_vm,
-    time_sleep.wait_for_vm
-  ]
-}
-
-# Floating IP Association mit data-basierter Port-ID
-resource "openstack_networking_floatingip_associate_v2" "fip_assoc" {
-  count       = local.enable_floating_ip ? 1 : 0
-  floating_ip = openstack_networking_floatingip_v2.fip[0].address
-  port_id     = data.openstack_networking_port_v2.vm_port[0].id
-
-  depends_on = [
-    data.openstack_networking_port_v2.vm_port,
-    time_sleep.wait_for_vm
-  ]
 }
