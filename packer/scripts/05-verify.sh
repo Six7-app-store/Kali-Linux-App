@@ -98,4 +98,17 @@ rm -f /etc/apt/apt.conf.d/90-packer-noninteractive
 truncate -s 0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id || true
 
+# Build-Benutzer aus template.pkr.hcl unbrauchbar machen. Loeschen geht hier
+# nicht, weil Packer noch als "packer" angemeldet ist. Die cloud-init-Vorlage in
+# terraform/ loescht ihn beim ersten Boot der Studi-VM.
+if id packer >/dev/null 2>&1; then
+  passwd -l packer
+  usermod --expiredate 1 --shell /usr/sbin/nologin packer
+fi
+rm -f /etc/sudoers.d/90-cloud-init-users
+
+# cloud-init-Zustand des Builds entfernen, auch die user-data mit dem
+# Build-Passwort. Jede Studi-VM fuehrt cloud-init ohnehin frisch aus.
+cloud-init clean --logs || true
+
 echo "=== Provisioning erfolgreich ($(date)) ==="
