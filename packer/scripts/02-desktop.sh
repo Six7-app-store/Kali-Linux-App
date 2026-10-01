@@ -4,6 +4,7 @@ set -euo pipefail
 # XFCE + XRDP auf IPv6
 
 export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
 trap 'echo "❌ FEHLER in $0 Zeile $LINENO"; exit 1' ERR
 
 # INI-Schluessel setzen und das Ergebnis pruefen.
