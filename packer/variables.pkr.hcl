@@ -1,7 +1,13 @@
-variable "source_image_name" {
+# Basis ist ein Debian-Cloud-Image aus dem Internet, kein Image aus Glance.
+#
+# In OpenStack liegt kein Kali-Image, und ueber den App Store laesst sich keins
+# hochladen. Kalis eigene Cloud-Images gibt es nur als .tar.xz, das Glance nicht
+# entpacken kann. Debian liefert eine direkt nutzbare qcow2; 01-base.sh stellt
+# sie waehrend des Builds komplett auf kali-rolling um.
+variable "source_image_url" {
   type        = string
-  description = "Basis-Image, auf dem gebaut wird @openstack:image:name"
-  default     = "Kali Linux 2025.3"
+  description = "URL des Debian-qcow2, das Glance per web-download laedt und das zu Kali umgebaut wird"
+  default     = "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2"
 }
 
 variable "image_name" {
