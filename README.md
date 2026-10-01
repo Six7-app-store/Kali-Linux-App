@@ -9,19 +9,26 @@ Kali-VM mit XFCE-Desktop und kuratierten Security-Werkzeugen für den OpenStack 
 - **Desktop-Integration:** Starter, Autostart, Kursverzeichnis `~/kali-kurs/`
 - **Multi-User:** Geteilte VM, pro Nutzer eigene RDP-Session + Account
 
-## 0. Vorbedingung: Kali-Image hochladen
+## 0. Basis-Image: Debian, umgestellt auf Kali
 
-```bash
-export OS_CLOUD=openstack  # Campusnetz oder VPN
+In OpenStack liegt kein Kali-Image. Images können nur die Cloud-Admins hinzufügen, der App Store
+selbst lädt keine hoch.
 
-# Image von cdimage.kali.org laden, dann:
-openstack image create "Kali Linux 2025.3" \
-  --disk-format qcow2 --container-format bare \
-  --file kali-linux-2025.3-cloud-genericcloud-amd64.qcow2 \
-  --property hw_qemu_guest_agent=yes --private
-```
+Die App baut deshalb auf dem vorhandenen Image **„Debian“** auf (`source_image_name` in
+`packer/variables.pkr.hcl`, im App-Store-Formular auswählbar). `01-base.sh` stellt es während des
+Builds vollständig auf **Kali (kali-rolling)** um. Das Ergebnis ist echtes Kali, getestet ab Debian
+12 und 13.
 
-Der Image-Name muss mit `source_image_name` in `packer/variables.pkr.hcl` übereinstimmen.
+Was das bedeutet:
+
+- Beim Deployen bei `source_image_name` **„Debian“** auswählen. Das ist der Default.
+- Die Build-VM braucht Internetzugang zu `archive.kali.org` und `http.kali.org`.
+- Der Build dauert länger als bei einem fertigen Image (Upgrade auf Kali). Der App Store baut aber
+  nur einmal pro Commit.
+- Die Build-VM braucht mindestens **15 GB** freien Plattenplatz. `01-base.sh` prüft das vorab.
+
+Sollten die Admins einmal ein echtes Kali-Image bereitstellen, kann der Debian-Umbau in
+`01-base.sh` entfallen.
 
 ## 1. Deployment
 
@@ -75,7 +82,7 @@ openstack image delete kali-app-v1
 | Datei | Aufgabe |
 |---|---|
 | `packer/template.pkr.hcl` | Build-Definition, ruft die Steps auf |
-| `packer/scripts/01-base.sh` | apt, debconf |
+| `packer/scripts/01-base.sh` | Debian → Kali umstellen, debconf, Basispakete |
 | `packer/scripts/02-desktop.sh` | XFCE, XRDP (IPv6-Binding) |
 | `packer/scripts/03-tools.sh` | Kali-Werkzeuge |
 | `packer/scripts/04-integration.sh` | Desktop-Starter, Kursverzeichnis |
@@ -85,7 +92,7 @@ openstack image delete kali-app-v1
 | `terraform/outputs.tf` | Zugangsdaten (Contract) |
 | `validate.sh` | Post-Deployment-Test |
 
-**Ablauf:** Packer baut das Image → Terraform erzeugt die VM → cloud-init legt Nutzer an und startet die Dienste.
+**Ablauf:** Packer startet das Debian-Image, stellt auf Kali um und baut das Image → Terraform erzeugt die VM → cloud-init legt Nutzer an und startet die Dienste.
 
 Die Steps werden von Packer selbst der Reihe nach hochgeladen und ausgeführt (`scripts = [...]` in `template.pkr.hcl`). Einen Orchestrator auf der Build-VM gibt es bewusst nicht: Packer lädt nur die dort genannten Dateien hoch, ein Skript, das andere aufruft, fände sie nicht vor.
 

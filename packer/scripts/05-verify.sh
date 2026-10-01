@@ -25,6 +25,12 @@ pruefe() {
 
 echo "=== Verifikation ==="
 
+echo "System:"
+# Basis ist ein Debian-Image (siehe 01-base.sh). Ein halb umgestelltes System
+# haette alle Werkzeuge und saehe trotzdem gruen aus.
+pruefe "System ist Kali (ID=kali)" grep -qx 'ID=kali' /etc/os-release
+pruefe "nur Kali-Paketquellen" test ! -e /etc/apt/sources.list.d/debian.sources
+
 echo "Programme:"
 pruefe "xrdp" command -v xrdp
 pruefe "xfce4-session" command -v xfce4-session
@@ -86,6 +92,9 @@ echo "✓ Alle kritischen Komponenten vorhanden und plausibel"
 # Image erzeugte VM eine eigene bekommt.
 apt-get clean
 rm -rf /var/lib/apt/lists/*
+# Nur fuer den unbeaufsichtigten Build gedacht (01-base.sh); auf der Studi-VM
+# soll apt bei Konfigurationsdateien wieder normal nachfragen.
+rm -f /etc/apt/apt.conf.d/90-packer-noninteractive
 truncate -s 0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id || true
 

@@ -1,7 +1,12 @@
+# Basis ist das vorhandene Debian-Image, kein Kali-Image.
+#
+# In OpenStack liegt kein Kali-Image, und Images koennen nur die Cloud-Admins
+# hinzufuegen - der App Store selbst laedt keine hoch. 01-base.sh stellt Debian
+# waehrend des Builds komplett auf kali-rolling um (getestet ab Debian 12 und 13).
 variable "source_image_name" {
   type        = string
-  description = "Basis-Image, auf dem gebaut wird @openstack:image:name"
-  default     = "Kali Linux 2025.3"
+  description = "Debian-Basis-Image, das beim Build zu Kali umgestellt wird @openstack:image:name"
+  default     = "Debian"
 }
 
 variable "image_name" {

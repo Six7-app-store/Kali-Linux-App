@@ -2,8 +2,36 @@
 
 ## Packer-Build fehlgeschlagen
 
-**„image_name not found"**
-→ Base-Image liegt nicht in OpenStack. Schritt 0 im README wiederholen.
+### Basis-Image (Debian → Kali)
+
+**„No image was found matching filters: … Name:Kali Linux …"**
+→ Es wurde eine alte Version deployt (bis `v1.2.0`). Im App Store die neueste Version auswählen.
+Im Log muss eine neue `Commit:`-ID stehen.
+
+**„No image was found matching filters: … Name:Debian …"**
+→ Das Image heißt in eurem OpenStack anders oder wurde umbenannt. Im Deploy-Formular bei
+`source_image_name` das Debian-Image aus der Liste wählen.
+
+**„SSH timeout" beim Debian-Image**
+→ Das Image nutzt nicht den Standardbenutzer `debian` der offiziellen Debian-Cloud-Images.
+Bei den Admins nachfragen, welcher Benutzer es ist, und `ssh_username` in `template.pkr.hcl`
+anpassen.
+
+**„Nur … GB frei auf /, mindestens 15 GB nötig"**
+→ Root-Disk des Build-Flavors ist zu klein für Desktop + Werkzeuge. In `template.pkr.hcl` einen
+Flavor mit größerer Disk wählen.
+
+**„Kali-Keyring enthält den erwarteten Schlüssel … nicht"**
+→ Kali hat den Archiv-Signierschlüssel gewechselt (zuletzt April 2025), oder der Download war
+manipuliert. Neuen Fingerprint **nur aus offizieller Quelle** (kali.org-Blog) übernehmen und
+`KALI_FINGERPRINT` in `01-base.sh` anpassen.
+
+**„Umstellung unvollständig: /etc/os-release meldet nicht ID=kali"**
+→ `full-upgrade` auf kali-rolling ist nicht vollständig durchgelaufen. Im Packer-Log nach dem
+ersten `E:` von apt suchen. Häufigste Ursache: ein Kali-Mirror ist kurz nicht erreichbar, dann den
+Build neu starten.
+
+### Allgemein
 
 **„SSH timeout"**
 → Build-Flavor zu klein oder Startup dauert länger.
@@ -15,7 +43,7 @@
 
 **„Permission denied" *innerhalb* eines Build-Steps (apt, sed, /etc/…)**
 → `execute_command = "sudo -E bash '{{.Path}}'"` fehlt in `template.pkr.hcl`.
-Der Shell-Provisioner läuft sonst als SSH-Benutzer `kali`, nicht als root.
+Der Shell-Provisioner läuft sonst als SSH-Benutzer `debian`, nicht als root.
 
 **„No such file or directory" beim Aufruf eines Steps**
 → Das Skript steht nicht in der `scripts`-Liste in `template.pkr.hcl`. Packer

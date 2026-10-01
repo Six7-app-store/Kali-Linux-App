@@ -15,10 +15,9 @@ source "openstack" "image" {
   networks          = var.networks
   security_groups   = var.security_groups
 
-  # Das Kali-Cloud-Image hat keinen "ubuntu"-Benutzer.
-  ssh_username = "kali"
+  # Standardbenutzer der offiziellen Debian-Cloud-Images.
+  ssh_username = "debian"
 
-  # Kali braucht beim Erststart laenger als Ubuntu, bis sshd bereit ist.
   ssh_timeout = "20m"
 }
 

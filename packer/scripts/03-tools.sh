@@ -4,6 +4,7 @@ set -euo pipefail
 # Kali-Werkzeuge (kuratiert)
 
 export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
 trap 'echo "❌ FEHLER in $0 Zeile $LINENO"; exit 1' ERR
 
 # tcpdump ist bewusst dabei: die Kurzanleitung nennt es, und ohne das Paket
