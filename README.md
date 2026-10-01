@@ -9,25 +9,26 @@ Kali-VM mit XFCE-Desktop und kuratierten Security-Werkzeugen für den OpenStack 
 - **Desktop-Integration:** Starter, Autostart, Kursverzeichnis `~/kali-kurs/`
 - **Multi-User:** Geteilte VM, pro Nutzer eigene RDP-Session + Account
 
-## 0. Basis-Image: wird automatisch geladen
+## 0. Basis-Image: Debian, umgestellt auf Kali
 
-Ein Kali-Image muss **nicht** vorher in OpenStack hochgeladen werden.
+In OpenStack liegt kein Kali-Image. Images können nur die Cloud-Admins hinzufügen, der App Store
+selbst lädt keine hoch.
 
-Der Build lädt ein offizielles **Debian-13-Cloud-Image** (`source_image_url` in
-`packer/variables.pkr.hcl`) direkt aus dem Internet nach OpenStack. `01-base.sh` stellt es dann
-vollständig auf **Kali (kali-rolling)** um. Nach dem Build löscht Packer das temporäre Debian-Image
-wieder.
-
-Warum der Umweg: Über den App Store lässt sich kein eigenes Image hochladen, und Kali stellt seine
-Cloud-Images nur als `.tar.xz` bereit, das OpenStack nicht direkt verarbeiten kann.
+Die App baut deshalb auf dem vorhandenen Image **„Debian“** auf (`source_image_name` in
+`packer/variables.pkr.hcl`, im App-Store-Formular auswählbar). `01-base.sh` stellt es während des
+Builds vollständig auf **Kali (kali-rolling)** um. Das Ergebnis ist echtes Kali, getestet ab Debian
+12 und 13.
 
 Was das bedeutet:
 
-- OpenStack muss den Image-Import per **web-download** erlauben. Die Build-VM selbst braucht
-  Internetzugang zu `cloud.debian.org`, `archive.kali.org` und `http.kali.org`.
-- Der Build dauert länger als bei einem fertigen Image (Download plus Upgrade auf Kali). Der App Store
-  baut aber nur einmal pro Commit.
+- Beim Deployen bei `source_image_name` **„Debian“** auswählen. Das ist der Default.
+- Die Build-VM braucht Internetzugang zu `archive.kali.org` und `http.kali.org`.
+- Der Build dauert länger als bei einem fertigen Image (Upgrade auf Kali). Der App Store baut aber
+  nur einmal pro Commit.
 - Die Build-VM braucht mindestens **15 GB** freien Plattenplatz. `01-base.sh` prüft das vorab.
+
+Sollten die Admins einmal ein echtes Kali-Image bereitstellen, kann der Debian-Umbau in
+`01-base.sh` entfallen.
 
 ## 1. Deployment
 
@@ -91,7 +92,7 @@ openstack image delete kali-app-v1
 | `terraform/outputs.tf` | Zugangsdaten (Contract) |
 | `validate.sh` | Post-Deployment-Test |
 
-**Ablauf:** OpenStack lädt Debian 13 → Packer stellt auf Kali um und baut das Image → Terraform erzeugt die VM → cloud-init legt Nutzer an und startet die Dienste.
+**Ablauf:** Packer startet das Debian-Image, stellt auf Kali um und baut das Image → Terraform erzeugt die VM → cloud-init legt Nutzer an und startet die Dienste.
 
 Die Steps werden von Packer selbst der Reihe nach hochgeladen und ausgeführt (`scripts = [...]` in `template.pkr.hcl`). Einen Orchestrator auf der Build-VM gibt es bewusst nicht: Packer lädt nur die dort genannten Dateien hoch, ein Skript, das andere aufruft, fände sie nicht vor.
 

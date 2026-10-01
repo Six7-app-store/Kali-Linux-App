@@ -2,20 +2,20 @@
 
 ## Packer-Build fehlgeschlagen
 
-### Basis-Image (Debian-Download)
+### Basis-Image (Debian → Kali)
 
 **„No image was found matching filters: … Name:Kali Linux …"**
-→ Das ist der alte Stand mit `source_image_name`. Der aktuelle Stand lädt Debian per
-`external_source_image_url`. Prüfen, ob der richtige Commit deployt wurde.
+→ Es wurde eine alte Version deployt (bis `v1.2.0`). Im App Store die neueste Version auswählen.
+Im Log muss eine neue `Commit:`-ID stehen.
 
-**Fehler beim Image-Import / „web-download" / 403 / „import method not allowed"**
-→ Glance erlaubt in dieser OpenStack-Installation keinen Import per `web-download`. Das können
-nur die Cloud-Admins freischalten (`enabled_import_methods` in Glance). Alternativen: Admins laden
-das Basis-Image einmal hoch, oder die App baut auf einem vorhandenen Image wie `Ubuntu 24.04` auf.
+**„No image was found matching filters: … Name:Debian …"**
+→ Das Image heißt in eurem OpenStack anders oder wurde umbenannt. Im Deploy-Formular bei
+`source_image_name` das Debian-Image aus der Liste wählen.
 
-**„Image not Active, retrying in 10 seconds" endlos / Image bleibt `queued` oder `importing`**
-→ Glance kommt nicht an `cloud.debian.org` (Proxy/Firewall der Cloud) oder die URL in
-`source_image_url` stimmt nicht mehr. URL im Browser prüfen.
+**„SSH timeout" beim Debian-Image**
+→ Das Image nutzt nicht den Standardbenutzer `debian` der offiziellen Debian-Cloud-Images.
+Bei den Admins nachfragen, welcher Benutzer es ist, und `ssh_username` in `template.pkr.hcl`
+anpassen.
 
 **„Nur … GB frei auf /, mindestens 15 GB nötig"**
 → Root-Disk des Build-Flavors ist zu klein für Desktop + Werkzeuge. In `template.pkr.hcl` einen
