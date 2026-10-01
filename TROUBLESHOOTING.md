@@ -2,8 +2,36 @@
 
 ## Packer-Build fehlgeschlagen
 
-**„image_name not found"**
-→ Base-Image liegt nicht in OpenStack. Schritt 0 im README wiederholen.
+### Basis-Image (Debian-Download)
+
+**„No image was found matching filters: … Name:Kali Linux …"**
+→ Das ist der alte Stand mit `source_image_name`. Der aktuelle Stand lädt Debian per
+`external_source_image_url`. Prüfen, ob der richtige Commit deployt wurde.
+
+**Fehler beim Image-Import / „web-download" / 403 / „import method not allowed"**
+→ Glance erlaubt in dieser OpenStack-Installation keinen Import per `web-download`. Das können
+nur die Cloud-Admins freischalten (`enabled_import_methods` in Glance). Alternativen: Admins laden
+das Basis-Image einmal hoch, oder die App baut auf einem vorhandenen Image wie `Ubuntu 24.04` auf.
+
+**„Image not Active, retrying in 10 seconds" endlos / Image bleibt `queued` oder `importing`**
+→ Glance kommt nicht an `cloud.debian.org` (Proxy/Firewall der Cloud) oder die URL in
+`source_image_url` stimmt nicht mehr. URL im Browser prüfen.
+
+**„Nur … GB frei auf /, mindestens 15 GB nötig"**
+→ Root-Disk des Build-Flavors ist zu klein für Desktop + Werkzeuge. In `template.pkr.hcl` einen
+Flavor mit größerer Disk wählen.
+
+**„Kali-Keyring enthält den erwarteten Schlüssel … nicht"**
+→ Kali hat den Archiv-Signierschlüssel gewechselt (zuletzt April 2025), oder der Download war
+manipuliert. Neuen Fingerprint **nur aus offizieller Quelle** (kali.org-Blog) übernehmen und
+`KALI_FINGERPRINT` in `01-base.sh` anpassen.
+
+**„Umstellung unvollständig: /etc/os-release meldet nicht ID=kali"**
+→ `full-upgrade` auf kali-rolling ist nicht vollständig durchgelaufen. Im Packer-Log nach dem
+ersten `E:` von apt suchen. Häufigste Ursache: ein Kali-Mirror ist kurz nicht erreichbar, dann den
+Build neu starten.
+
+### Allgemein
 
 **„SSH timeout"**
 → Build-Flavor zu klein oder Startup dauert länger.
@@ -15,7 +43,7 @@
 
 **„Permission denied" *innerhalb* eines Build-Steps (apt, sed, /etc/…)**
 → `execute_command = "sudo -E bash '{{.Path}}'"` fehlt in `template.pkr.hcl`.
-Der Shell-Provisioner läuft sonst als SSH-Benutzer `kali`, nicht als root.
+Der Shell-Provisioner läuft sonst als SSH-Benutzer `debian`, nicht als root.
 
 **„No such file or directory" beim Aufruf eines Steps**
 → Das Skript steht nicht in der `scripts`-Liste in `template.pkr.hcl`. Packer
