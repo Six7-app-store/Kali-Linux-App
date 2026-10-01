@@ -8,24 +8,16 @@ packer {
 }
 
 source "openstack" "image" {
-  cloud           = "openstack"
-  image_name      = var.image_name
-  flavor          = "gp1.medium"
-  networks        = var.networks
-  security_groups = var.security_groups
+  cloud             = "openstack"
+  image_name        = var.image_name
+  source_image_name = var.source_image_name
+  flavor            = "gp1.medium"
+  networks          = var.networks
+  security_groups   = var.security_groups
 
-  # Glance laedt das Basis-Image selbst aus dem Internet (Image-Import
-  # "web-download"); Packer wartet, bis es aktiv ist, und loescht es nach dem
-  # Build wieder. Schliesst source_image_name aus. Voraussetzung: die
-  # OpenStack-Installation erlaubt web-download.
-  external_source_image_url    = var.source_image_url
-  external_source_image_format = "qcow2"
-
-  # Standardbenutzer der Debian-Cloud-Images.
+  # Standardbenutzer der offiziellen Debian-Cloud-Images.
   ssh_username = "debian"
 
-  # Erststart inklusive Image-Import dauert laenger als bei einem fertigen
-  # Glance-Image.
   ssh_timeout = "20m"
 }
 
