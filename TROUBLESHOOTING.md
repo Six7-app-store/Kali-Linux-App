@@ -8,18 +8,21 @@
 → Es wurde eine alte Version deployt (bis `v1.2.0`). Im App Store die neueste Version auswählen.
 Im Log muss eine neue `Commit:`-ID stehen.
 
-**„No image was found matching filters: … Name:Debian …"**
+**„No image was found matching filters: … Name:Debian 13 …"**
 → Das Image heißt in eurem OpenStack anders oder wurde umbenannt. Im Deploy-Formular bei
-`source_image_name` das Debian-Image aus der Liste wählen.
+`source_image_name` das Debian-Image aus der Liste wählen und den exakten Namen als Default in
+`packer/variables.pkr.hcl` eintragen.
 
 **„ssh: unable to authenticate, attempted methods [none publickey]"**
-→ Packer hat sich mit dem Standardbenutzer des Images angemeldet, den es dort nicht gibt. Das war
-der alte Stand mit `ssh_username = "debian"`. Der aktuelle Stand legt per `user_data` einen eigenen
-Build-Benutzer `packer` an. Prüfen, ob die neueste Version deployt wurde.
+→ In der ersten Minute nach dem Start normal: Der Build-Benutzer `packer` bekommt Packers Schlüssel
+erst, wenn cloud-init am Ende des Starts `runcmd` ausführt. Packer versucht es weiter.
+→ Hält das bis zum `ssh_timeout` an, ist es meist ein alter Stand. Der sshd des Debian-Images
+bietet nur Schlüssel-Login an, Passwort- und `ssh_username = "debian"`-Varianten scheitern dort
+immer. Prüfen, ob die neueste Version deployt wurde (`Commit:`-Zeile im Log).
 
-**„SSH timeout" trotz Build-Benutzer `packer`**
-→ cloud-init läuft im Basis-Image nicht oder ignoriert `user_data`. Dann wurde der Benutzer nie
-angelegt. Bei den Admins nachfragen, ob das Image cloud-init enthält.
+**„SSH timeout" trotz aktuellem Stand**
+→ cloud-init läuft im Basis-Image nicht oder ignoriert `user_data`. Dann wurde `packer` nie angelegt
+bzw. hat keinen Schlüssel. Bei den Admins nachfragen, ob das Image cloud-init enthält.
 
 **Ein hängender Build lässt sich im App Store nicht abbrechen**
 → Nicht nötig: Packer gibt nach `ssh_timeout` (20 min) auf und löscht die temporäre VM und das
