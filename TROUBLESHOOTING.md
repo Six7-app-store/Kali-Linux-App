@@ -12,10 +12,18 @@ Im Log muss eine neue `Commit:`-ID stehen.
 → Das Image heißt in eurem OpenStack anders oder wurde umbenannt. Im Deploy-Formular bei
 `source_image_name` das Debian-Image aus der Liste wählen.
 
-**„SSH timeout" beim Debian-Image**
-→ Das Image nutzt nicht den Standardbenutzer `debian` der offiziellen Debian-Cloud-Images.
-Bei den Admins nachfragen, welcher Benutzer es ist, und `ssh_username` in `template.pkr.hcl`
-anpassen.
+**„ssh: unable to authenticate, attempted methods [none publickey]"**
+→ Packer hat sich mit dem Standardbenutzer des Images angemeldet, den es dort nicht gibt. Das war
+der alte Stand mit `ssh_username = "debian"`. Der aktuelle Stand legt per `user_data` einen eigenen
+Build-Benutzer `packer` an. Prüfen, ob die neueste Version deployt wurde.
+
+**„SSH timeout" trotz Build-Benutzer `packer`**
+→ cloud-init läuft im Basis-Image nicht oder ignoriert `user_data`. Dann wurde der Benutzer nie
+angelegt. Bei den Admins nachfragen, ob das Image cloud-init enthält.
+
+**Ein hängender Build lässt sich im App Store nicht abbrechen**
+→ Nicht nötig: Packer gibt nach `ssh_timeout` (20 min) auf und löscht die temporäre VM und das
+Schlüsselpaar selbst.
 
 **„Nur … GB frei auf /, mindestens 15 GB nötig"**
 → Root-Disk des Build-Flavors ist zu klein für Desktop + Werkzeuge. In `template.pkr.hcl` einen
@@ -43,7 +51,7 @@ Build neu starten.
 
 **„Permission denied" *innerhalb* eines Build-Steps (apt, sed, /etc/…)**
 → `execute_command = "sudo -E bash '{{.Path}}'"` fehlt in `template.pkr.hcl`.
-Der Shell-Provisioner läuft sonst als SSH-Benutzer `debian`, nicht als root.
+Der Shell-Provisioner läuft sonst als SSH-Benutzer `packer`, nicht als root.
 
 **„No such file or directory" beim Aufruf eines Steps**
 → Das Skript steht nicht in der `scripts`-Liste in `template.pkr.hcl`. Packer

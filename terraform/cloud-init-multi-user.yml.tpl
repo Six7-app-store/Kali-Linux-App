@@ -51,6 +51,8 @@ chpasswd:
 # App-eigenen Gruppe in main.tf) - eine Host-Firewall waere nur eine zweite,
 # unabhaengig zu pflegende Wahrheit.
 runcmd:
+  # Build-Benutzer aus dem Packer-Image (dort schon gesperrt) endgueltig entfernen.
+  - userdel -r packer 2>/dev/null || true
   - systemctl restart ssh || { echo "SSH Restart fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
   - systemctl enable --now xrdp xrdp-sesman || { echo "XRDP enable fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
   - systemctl restart xrdp || { echo "XRDP restart fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
