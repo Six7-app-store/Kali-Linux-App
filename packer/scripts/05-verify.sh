@@ -107,8 +107,14 @@ if id packer >/dev/null 2>&1; then
 fi
 rm -f /etc/sudoers.d/90-cloud-init-users
 
-# cloud-init-Zustand des Builds entfernen, auch die user-data mit dem
-# Build-Passwort. Jede Studi-VM fuehrt cloud-init ohnehin frisch aus.
+# Packers temporaerer Schluessel steckt beim Standardbenutzer, bei root und bei
+# "packer" (siehe user_data in template.pkr.hcl). Die Studi-VMs bekommen ihre
+# Zugaenge frisch per cloud-init, hier darf keiner zurueckbleiben. Die laufende
+# SSH-Sitzung bleibt davon unberuehrt.
+find /root /home -path '*/.ssh/authorized_keys' -type f -delete
+
+# cloud-init-Zustand des Builds (inkl. Build-user-data) entfernen. Jede
+# Studi-VM fuehrt cloud-init ohnehin frisch aus.
 cloud-init clean --logs || true
 
 echo "=== Provisioning erfolgreich ($(date)) ==="

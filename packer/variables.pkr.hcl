@@ -6,7 +6,7 @@
 variable "source_image_name" {
   type        = string
   description = "Debian-Basis-Image, das beim Build zu Kali umgestellt wird @openstack:image:name"
-  default     = "Debian"
+  default     = "Debian 13"
 }
 
 variable "image_name" {
