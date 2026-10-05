@@ -28,11 +28,6 @@ provider "openstack" {
 
 locals {
   app_name = "kali-user"
-
-  # Groesser als bei der Ubuntu-Terminal-App: ein gemeinsamer XFCE-Desktop mit
-  # mehreren gleichzeitigen RDP-Sitzungen plus Werkzeugen wie Burp oder
-  # Metasploit braucht deutlich mehr RAM als eine reine Terminal-VM.
-  flavor   = "gp1.medium"
   key_pair = "" # Leer = nur Passwort-Auth
 
   metadata = {}
@@ -154,7 +149,7 @@ resource "openstack_networking_secgroup_rule_v2" "rdp_v6" {
 resource "openstack_compute_instance_v2" "shared_vm" {
   name        = "${local.app_name}-shared"
   image_id    = data.openstack_images_image_v2.image.id
-  flavor_name = local.flavor
+  flavor_name = var.flavor
   key_pair    = local.key_pair != "" ? local.key_pair : null
 
   # openstack_compute_instance_v2 erwartet Security-Group-NAMEN, nicht IDs -

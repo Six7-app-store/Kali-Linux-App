@@ -9,6 +9,17 @@ variable "source_image_name" {
   default     = "Debian 13"
 }
 
+# Die gp1-Familie scheidet aus: sie liefert durchgehend 10 GB Platte, davon
+# bleiben nach dem Start ~9 GB frei. Kali mit Desktop, Werkzeugen und Metasploit
+# braucht mindestens 15 GB (Platzcheck in 01-base.sh). win11.medium hat 2 vCPU,
+# 8 GB RAM und 80 GB und bootet ohne Cinder-Volume - bewaehrt in der Windows-App.
+# Der Name ist irrefuehrend, der Flavor ist nicht an Windows gebunden.
+variable "flavor" {
+  type        = string
+  description = "Flavor fuer die Build-VM (mind. 20 GB Platte) @openstack:flavor:name"
+  default     = "win11.medium"
+}
+
 variable "image_name" {
   type        = string
   description = "Glance-Image-Name — vom Worker zur Build-Zeit gesetzt. @platform:internal"

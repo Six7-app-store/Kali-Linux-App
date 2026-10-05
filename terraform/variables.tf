@@ -19,6 +19,18 @@ variable "image_name" {
 # Konfigurierbare Variablen
 ################################################
 
+# Muss mindestens so viel Platte haben wie der Build-Flavor in
+# packer/variables.pkr.hcl: das Image ist ein Snapshot von dessen Platte (nach
+# growpart auf volle Groesse erweitert), ein kleinerer Flavor wird von Nova
+# abgelehnt ("Flavor's disk is too small for requested image").
+# gp1 hat nur 10 GB. win11.medium (2 vCPU, 8 GB RAM, 80 GB) reicht auch fuer
+# mehrere gleichzeitige XFCE-Sitzungen mit Burp oder Metasploit.
+variable "flavor" {
+  description = "Flavor der Kali-VM (gleich gross wie der Packer-Build-Flavor) @openstack:flavor:name"
+  type        = string
+  default     = "win11.medium"
+}
+
 variable "network_uuid" {
   description = "Hauptnetzwerk @openstack:network:id"
   type        = string

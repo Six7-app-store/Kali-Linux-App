@@ -29,8 +29,13 @@ bzw. hat keinen Schlüssel. Bei den Admins nachfragen, ob das Image cloud-init e
 Schlüsselpaar selbst.
 
 **„Nur … GB frei auf /, mindestens 15 GB nötig"**
-→ Root-Disk des Build-Flavors ist zu klein für Desktop + Werkzeuge. In `template.pkr.hcl` einen
-Flavor mit größerer Disk wählen.
+→ Root-Disk des Build-Flavors ist zu klein für Desktop + Werkzeuge. Alle `gp1`-Flavors haben nur
+10 GB (davon ~9 GB frei). Im Deploy-Formular bei der Packer-Variable `flavor` einen Flavor mit mehr
+Platte wählen (Default `win11.medium`, 80 GB). Bei der Terraform-Variable `flavor` denselben wählen.
+
+**„Flavor's disk is too small for requested image" bei `terraform apply`**
+→ Der Terraform-Flavor hat weniger Platte als der Packer-Build-Flavor. Das Image ist so groß wie die
+Build-Platte. Bei beiden Variablen `flavor` denselben Flavor wählen.
 
 **„Kali-Keyring enthält den erwarteten Schlüssel … nicht"**
 → Kali hat den Archiv-Signierschlüssel gewechselt (zuletzt April 2025), oder der Download war

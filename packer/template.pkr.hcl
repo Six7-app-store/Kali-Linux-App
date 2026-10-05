@@ -11,7 +11,7 @@ source "openstack" "image" {
   cloud             = "openstack"
   image_name        = var.image_name
   source_image_name = var.source_image_name
-  flavor            = "gp1.medium"
+  flavor            = var.flavor
   networks          = var.networks
   security_groups   = var.security_groups
 

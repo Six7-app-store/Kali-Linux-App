@@ -101,7 +101,7 @@ Die Steps werden von Packer selbst der Reihe nach hochgeladen und ausgeführt (`
 | | |
 |---|---|
 | VMs | 1 (geteilt) |
-| Flavor | gp1.medium |
+| Flavor | win11.medium (2 vCPU, 8 GB RAM, 80 GB). `gp1` hat nur 10 GB Platte, zu wenig für Kali mit Desktop. Im Formular als `flavor` wählbar, Packer und Terraform müssen denselben Flavor nutzen. |
 | Netz | IPv6 (DHBWV6) |
 | RDP-Port | 3389 (eigene Security Group) |
 
