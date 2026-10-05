@@ -10,10 +10,6 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.5"
     }
-    time = {
-      source  = "hashicorp/time"
-      version = "~> 0.10"
-    }
   }
 }
 
@@ -113,10 +109,21 @@ resource "random_password" "user_passwords" {
   min_special      = 1
 }
 
-# Packer-built image lookup by name (keine IDs hardcoden)
+# Basis-Image per Name (keine IDs hardcoden). Kein Image-Build mehr: die VM
+# startet als Debian und stellt sich beim ersten Start selbst auf Kali um.
 data "openstack_images_image_v2" "image" {
-  name        = var.image_name
+  name        = var.source_image_name
   most_recent = true
+}
+
+locals {
+  # Alle Skripte aus scripts/ gehen in die user_data, gzip+base64 wegen des
+  # 64-KB-Limits. Das ganze Verzeichnis statt einer Liste: setup.sh fuehrt
+  # jedes NN-*.sh aus, ein neuer Schritt braucht also nur eine neue Datei.
+  setup_scripts = {
+    for name in fileset("${path.module}/scripts", "*.sh") :
+    name => base64gzip(file("${path.module}/scripts/${name}"))
+  }
 }
 
 # -----------------------------------------------------------------------------
@@ -171,6 +178,7 @@ resource "openstack_compute_instance_v2" "shared_vm" {
     unique_teams  = local.unique_teams
     unique_groups = local.unique_groups
     passwords     = [for p in random_password.user_passwords : p.result]
+    scripts       = local.setup_scripts
   })
 
   metadata = merge(local.metadata, {
@@ -190,11 +198,8 @@ resource "openstack_compute_instance_v2" "shared_vm" {
   }
 }
 
-# Warten bis cloud-init die Benutzer angelegt UND den Desktop gestartet hat.
-# Fuer reines SSH reichten 90s; XRDP-Sitzungen sind aber erst spaeter bedienbar.
-# Ohne das Warten meldet Terraform fertig, sobald die Instanz ACTIVE ist - die
-# Zugangsdaten gehen dann raus, bevor der Remotedesktop erreichbar ist.
-resource "time_sleep" "wait_for_vm" {
-  depends_on      = [openstack_compute_instance_v2.shared_vm]
-  create_duration = "180s"
-}
+# Kein Warten auf die fertige Einrichtung in apply: die Umstellung auf Kali mit
+# Desktop und Werkzeugen beim ersten Start dauert laenger, als der worker apply
+# laufen laesst (30 min). apply endet, sobald die VM laeuft; die Zugangsdaten
+# funktionieren fuer SSH sofort, RDP erst nach der Einrichtung. Status zeigt
+# /etc/motd beim Login, validate.sh prueft /var/lib/kali-app/ready.
