@@ -1,10 +1,11 @@
-# Statische Pruefung der Terraform-Konfiguration: fmt, validate, tflint, tfsec.
+# Statische Pruefung der OpenTofu-Konfiguration: fmt, validate, tflint, tfsec.
 #
-# Kein Terraform Cloud und kein Remote-Backend - deshalb "init -backend=false"
-# und kein API-Token. Es wird hier auch nichts geplant oder angewendet: das
-# braeuchte OpenStack-Credentials, die dieses Repo bewusst nicht kennt.
+# Kein Remote-Backend - deshalb "init -backend=false". Es wird hier auch nichts
+# geplant oder angewendet: das braeuchte OpenStack-Credentials, die dieses Repo
+# bewusst nicht kennt. Der Ordner heisst weiter terraform/, OpenTofu liest
+# dieselben .tf-Dateien.
 
-name: 'Terraform'
+name: 'OpenTofu'
 
 on:
   push:
@@ -17,40 +18,37 @@ permissions:
   contents: read
 
 jobs:
-  terraform:
-    name: 'Terraform'
+  opentofu:
+    name: 'OpenTofu'
     runs-on: ubuntu-latest
     environment: production
 
-    # Use the Bash shell regardless whether the GitHub Actions runner is ubuntu-latest, macos-latest, or windows-latest
     defaults:
       run:
         shell: bash
+        working-directory: terraform
 
     steps:
-    # Checkout the repository to the GitHub Actions runner
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
+    # Dieselbe Version, mit der lokal getestet wurde.
+    - name: Setup OpenTofu
+      uses: opentofu/setup-opentofu@v1
+      with:
+        tofu_version: 1.10.6
 
-    # Ohne Backend: es geht nur um Syntax und Provider-Schemata.
-    - name: Terraform Init
-      run: terraform init -backend=false
-      working-directory: terraform
+    # Ohne Backend: es geht nur um Syntax und Provider-Schemata
+    # (Provider kommen aus registry.opentofu.org).
+    - name: OpenTofu Init
+      run: tofu init -backend=false
 
-    # Checks that all Terraform configuration files adhere to a canonical format
-    - name: Terraform Format
-      run: terraform fmt -check
-      working-directory: terraform
+    - name: OpenTofu Format
+      run: tofu fmt -check -recursive
 
-    # Validates the Terraform configuration files
-    - name: Terraform Validate
-      run: terraform validate
-      working-directory: terraform
+    - name: OpenTofu Validate
+      run: tofu validate
 
-    # Setup and run TFLint
     - name: Setup TFLint
       uses: terraform-linters/setup-tflint@v4
       with:
@@ -58,13 +56,10 @@ jobs:
 
     - name: Init TFLint
       run: tflint --init
-      working-directory: terraform
 
     - name: Run TFLint
       run: tflint --recursive
-      working-directory: terraform
 
-    # Run tfsec security scanner
     - name: Run tfsec
       uses: aquasecurity/tfsec-action@v1.0.3
       with:
