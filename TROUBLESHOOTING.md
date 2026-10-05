@@ -1,125 +1,114 @@
 # Troubleshooting
 
-## Packer-Build fehlgeschlagen
+## Wo nachsehen
 
-### Basis-Image (Debian → Kali)
+Die Einrichtung läuft beim ersten Start **auf der VM**, nicht mehr in einem Build-Log des App
+Stores. Per SSH (geht schon während der Einrichtung):
 
-**„No image was found matching filters: … Name:Kali Linux …"**
-→ Es wurde eine alte Version deployt (bis `v1.2.0`). Im App Store die neueste Version auswählen.
-Im Log muss eine neue `Commit:`-ID stehen.
+```bash
+cat /etc/motd                              # ⏳ läuft / ✅ bereit / ❌ fehlgeschlagen
+tail -f /var/log/kali-app-setup.log        # Fortschritt, lesbar für alle Accounts
+grep -E '^===|❌|E:' /var/log/kali-app-setup.log   # Schritte und Fehler im Überblick
+sudo cat /var/log/cloud-init-output.log    # alles, was cloud-init ausgegeben hat
+cloud-init status --long                   # done / running / error
+```
 
-**„No image was found matching filters: … Name:Debian 13 …"**
-→ Das Image heißt in eurem OpenStack anders oder wurde umbenannt. Im Deploy-Formular bei
-`source_image_name` das Debian-Image aus der Liste wählen und den exakten Namen als Default in
-`packer/variables.pkr.hcl` eintragen.
+`validate.sh` zeigt den Stand der Einrichtung zuerst.
 
-**„ssh: unable to authenticate, attempted methods [none publickey]"**
-→ In der ersten Minute nach dem Start normal: Der Build-Benutzer `packer` bekommt Packers Schlüssel
-erst, wenn cloud-init am Ende des Starts `runcmd` ausführt. Packer versucht es weiter.
-→ Hält das bis zum `ssh_timeout` an, ist es meist ein alter Stand. Der sshd des Debian-Images
-bietet nur Schlüssel-Login an, Passwort- und `ssh_username = "debian"`-Varianten scheitern dort
-immer. Prüfen, ob die neueste Version deployt wurde (`Commit:`-Zeile im Log).
+## `tofu apply` fehlgeschlagen
 
-**„SSH timeout" trotz aktuellem Stand**
-→ cloud-init läuft im Basis-Image nicht oder ignoriert `user_data`. Dann wurde `packer` nie angelegt
-bzw. hat keinen Schlüssel. Bei den Admins nachfragen, ob das Image cloud-init enthält.
+**„Value for undeclared variable" / „image_name"**
+→ Der worker übergibt noch eine Variable aus der Packer-Zeit (`image_name`). Ohne Image-Build gibt
+es sie nicht mehr. Im worker entfernen, oder als ungenutzte Variable in `variables.tf` deklarieren.
 
-**Ein hängender Build lässt sich im App Store nicht abbrechen**
-→ Nicht nötig: Packer gibt nach `ssh_timeout` (20 min) auf und löscht die temporäre VM und das
-Schlüsselpaar selbst.
+**„No image was found … Debian 13"**
+→ Das Image heißt in eurem OpenStack anders. Im Deploy-Formular bei `source_image_name` das
+Debian-Image aus der Liste wählen und den exakten Namen als Default in `terraform/variables.tf`
+eintragen.
+
+**„Roster ergibt doppelte Linux-Benutzernamen"**
+→ Dieselbe Person steht in zwei Teams, oder zwei Adressen bilden auf denselben Namen ab. Roster
+bereinigen, sonst teilten sich zwei Studierende einen Account und das zweite Passwort überschriebe
+das erste.
+
+**„Security group not found"**
+→ SG-UUID in `variables.tf` existiert nicht (`openstack security group list`).
+
+**„template rendering failed"**
+→ YAML-Syntax in `cloud-init-multi-user.yml.tpl` kaputt. `tofu console` → manuell rendern.
+→ Achtung: `${…}` ist OpenTofu-Interpolation. In Shell-Zeilen innerhalb der Vorlage nur `$(…)`.
+Die Einrichtungsskripte liegen deshalb als eigene Dateien in `scripts/` und werden unverändert
+(gzip+base64) mitgeschickt.
+
+**user_data zu groß (Nova: > 65535 Bytes)**
+→ Aktuell ca. 22 KB. Wächst `scripts/` stark, zuerst große Textblöcke (z. B. Kurstexte) prüfen.
+
+## Einrichtung beim ersten Start fehlgeschlagen
+
+**motd zeigt ❌ / `validate.sh` meldet „Einrichtung fehlgeschlagen"**
+→ Im Log nach der ersten Zeile mit `❌` oder `E:` suchen. Davor steht `=== NN-name.sh ===`, also der
+Schritt, der abgebrochen ist. Die VM bleibt für die Fehlersuche so stehen und startet nicht neu.
 
 **„Nur … GB frei auf /, mindestens 15 GB nötig"**
-→ Root-Disk des Build-Flavors ist zu klein für Desktop + Werkzeuge. Alle `gp1`-Flavors haben nur
-10 GB (davon ~9 GB frei). Im Deploy-Formular bei der Packer-Variable `flavor` einen Flavor mit mehr
-Platte wählen (Default `win11.medium`, 80 GB). Bei der Terraform-Variable `flavor` denselben wählen.
-
-**„Flavor's disk is too small for requested image" bei `terraform apply`**
-→ Der Terraform-Flavor hat weniger Platte als der Packer-Build-Flavor. Das Image ist so groß wie die
-Build-Platte. Bei beiden Variablen `flavor` denselben Flavor wählen.
+→ Der Flavor hat zu wenig Platte. Alle `gp1`-Flavors haben nur 10 GB. Im Formular bei `flavor`
+einen größeren wählen (Default `win11.medium`, 80 GB).
 
 **„Kali-Keyring enthält den erwarteten Schlüssel … nicht"**
 → Kali hat den Archiv-Signierschlüssel gewechselt (zuletzt April 2025), oder der Download war
 manipuliert. Neuen Fingerprint **nur aus offizieller Quelle** (kali.org-Blog) übernehmen und
-`KALI_FINGERPRINT` in `01-base.sh` anpassen.
+`KALI_FINGERPRINT` in `scripts/01-base.sh` anpassen.
 
 **„Umstellung unvollständig: /etc/os-release meldet nicht ID=kali"**
-→ `full-upgrade` auf kali-rolling ist nicht vollständig durchgelaufen. Im Packer-Log nach dem
-ersten `E:` von apt suchen. Häufigste Ursache: ein Kali-Mirror ist kurz nicht erreichbar, dann den
-Build neu starten.
+→ `full-upgrade` auf kali-rolling ist nicht vollständig durchgelaufen. Im Log nach dem ersten `E:`
+von apt suchen. Häufigste Ursache: ein Kali-Mirror war kurz nicht erreichbar. Dann die VM neu
+deployen.
 
-### Allgemein
+**„Could not get lock /var/lib/dpkg/lock-frontend"**
+→ apt-daily lief beim ersten Start parallel länger als 10 Minuten (`DPkg::Lock::Timeout` in
+`01-base.sh`). Selten, dann neu deployen.
 
-**„SSH timeout"**
-→ Build-Flavor zu klein oder Startup dauert länger.
-→ `template.pkr.hcl`: `ssh_timeout = "30m"` erhöhen.
+**Account ohne `kali-kurs` oder Desktop-Starter**
+→ `05-users.sh` ist nicht gelaufen oder abgebrochen. cloud-init legt die Accounts **vor** der
+Einrichtung an. Das Kursmaterial kommt erst durch `05-users.sh` in die Home-Verzeichnisse.
 
-**„Permission denied"**
-→ Credentials falsch. `export OS_CLOUD=openstack` prüfen.
-→ `openstack quota list` testen.
+## Einrichtung läuft „ewig"
 
-**„Permission denied" *innerhalb* eines Build-Steps (apt, sed, /etc/…)**
-→ `execute_command = "sudo -E bash '{{.Path}}'"` fehlt in `template.pkr.hcl`.
-Der Shell-Provisioner läuft sonst als SSH-Benutzer `packer`, nicht als root.
-
-**„No such file or directory" beim Aufruf eines Steps**
-→ Das Skript steht nicht in der `scripts`-Liste in `template.pkr.hcl`. Packer
-lädt ausschließlich die dort genannten Dateien auf die Build-VM hoch.
-
-**Ein Step bricht ab**
-→ Logs im Packer-Output prüfen.
-→ Lokal nachstellen: `bash -n packer/scripts/0X-*.sh` und `shellcheck packer/scripts/*.sh`.
+**motd zeigt nach langer Zeit noch ⏳**
+→ `tail -f /var/log/kali-app-setup.log`: Bewegt sich etwas, lädt es noch Pakete (mehrere GB).
+Steht es seit langem still, `cloud-init status --long` prüfen.
+→ `apply` ist davon unabhängig. Es endet, sobald die VM läuft, und wartet absichtlich nicht auf
+die Einrichtung, weil der worker `apply` nach 30 Minuten abbricht.
 
 ## Shell-Skripte: stille Fehler
 
 **Eine Datei wird angelegt, enthält aber Skriptquelltext**
-→ Unterminiertes Here-Document: der Schluss-Marker ist vertippt (`KRUS` statt
-`KURS`). Alles bis Dateiende landet in der Datei, die restlichen Zeilen laufen
-nie. Weder `set -e` noch der `ERR`-trap schlagen an, weil `cat` erfolgreich ist.
-→ `bash -n datei.sh` meldet es — aber nur als **Warnung auf stderr mit
-Exit-Code 0**. Der `Shell`-Workflow wertet deshalb jede Ausgabe als Fehler.
+→ Unterminiertes Here-Document: der Schluss-Marker ist vertippt (`KRUS` statt `KURS`). Alles bis
+Dateiende landet in der Datei, die restlichen Zeilen laufen nie. Weder `set -e` noch der
+`ERR`-trap schlagen an, weil `cat` erfolgreich ist.
+→ `bash -n datei.sh` meldet es — aber nur als **Warnung auf stderr mit Exit-Code 0**. Der
+`Shell`-Workflow wertet deshalb jede Ausgabe als Fehler.
+
+**Ein neuer Einrichtungsschritt läuft nie**
+→ Er heißt nicht `NN-*.sh`. `setup.sh` führt nur Dateien mit zweistelligem Nummernpräfix aus.
+Die CI prüft das.
 
 **Eine `sed -i`-Ersetzung passiert nicht**
-→ `sed` meldet auch ohne Treffer Erfolg. Ein `sed … || fallback` läuft deshalb
-nie in den Fallback. Nach dem Schreiben mit `grep -qxF` gegenprüfen (so macht es
-`set_ini_key` in `02-desktop.sh`).
+→ `sed` meldet auch ohne Treffer Erfolg. Ein `sed … || fallback` läuft deshalb nie in den
+Fallback. Nach dem Schreiben mit `grep -qxF` gegenprüfen (so macht es `set_ini_key` in
+`02-desktop.sh`).
 
 **Ein Glob im Ziel einer Umleitung greift nicht**
-→ `> "verzeichnis/0$i-*/datei.txt"` wird in Anführungszeichen nicht expandiert.
-Namen ausschreiben statt globben.
+→ `> "verzeichnis/0$i-*/datei.txt"` wird in Anführungszeichen nicht expandiert. Namen ausschreiben
+statt globben.
 
 **Ein Remote-Check prüft die falsche Maschine**
-→ In `ssh host "… $(befehl) …"` expandiert `$(…)` **lokal**. Remote-Befehle
-gehören in einfache Anführungszeichen.
+→ In `ssh host "… $(befehl) …"` expandiert `$(…)` **lokal**. Remote-Befehle gehören in einfache
+Anführungszeichen.
 
-## Terraform apply fehlgeschlagen
-
-**„missing required variable"**
-→ `image_name` in `meine.auto.tfvars` stimmt nicht mit dem Packer-Output überein.
-
-**„Roster ergibt doppelte Linux-Benutzernamen"**
-→ Dieselbe Person steht in zwei Teams, oder zwei Adressen bilden auf denselben
-Namen ab. Roster bereinigen — sonst teilten sich zwei Studierende einen Account
-und das zweite Passwort überschriebe das erste.
-
-**„Security group not found"**
-→ SG-UUID in `variables.tf` existiert nicht.
-→ `openstack security group list` prüfen.
-
-**„template rendering failed"**
-→ YAML-Syntax in `cloud-init-multi-user.yml.tpl` kaputt.
-→ `terraform console` → manuell rendern + YAML-Parser testen.
-→ Achtung: `${…}` ist Terraform-Interpolation. In Shell-Zeilen innerhalb der
-Vorlage nur `$(…)` verwenden.
-
-## VM oben, aber nicht erreichbar
-
-**SSH-Verbindung fehlgeschlagen**
-→ Nach dem `apply` noch ~3 Minuten warten (cloud-init läuft).
-→ `validate.sh` gibt genauere Fehlermeldungen.
+## VM fertig eingerichtet, aber nicht erreichbar
 
 **XRDP nicht aktiv**
 ```bash
-ssh user@ipv6
 sudo systemctl status xrdp
 sudo journalctl -u xrdp -n 50
 sudo systemctl restart xrdp
@@ -135,28 +124,25 @@ grep -E '^(port|enable_ipv6)=' /etc/xrdp/xrdp.ini
 → Im Client die IPv6-Adresse in eckigen Klammern angeben: `[2001:7c0:…]:3389`.
 
 **Port 3389 von außen dicht**
-→ Es gibt keine Host-Firewall (kein ufw). Gefiltert wird über OpenStack
-Security Groups:
+→ Es gibt keine Host-Firewall (kein ufw). Gefiltert wird über OpenStack Security Groups:
 ```bash
 openstack security group list
 openstack security group rule list kali-user-rdp
 ```
 → Die Regel muss `ethertype = IPv6` haben; eine IPv4-Regel ist hier wirkungslos.
 
-**Nutzer wurden nicht angelegt**
-```bash
-sudo cat /var/log/setup-complete.log
-sudo cat /var/log/cloud-init-output.log
-```
+**SSH-Login mit Passwort wird abgelehnt**
+→ `/etc/ssh/sshd_config.d/00-kali-app.conf` muss `PasswordAuthentication yes` enthalten. Der Name
+beginnt mit `00-`, weil sshd bei doppelten Angaben den **ersten** Wert nimmt und ein späteres
+`PasswordAuthentication no` des Basis-Images sonst gewinnen würde.
 
 ## Idempotenz testen
 
 ```bash
-terraform plan   # sollte "No changes" zeigen
-terraform apply
+tofu plan   # sollte "No changes" zeigen
 ```
 
-Zeigt es Änderungen → Fehler in HCL oder Terraform-State.
+Zeigt es Änderungen → Fehler in HCL oder State.
 
 ## Post-Deployment-Checks
 
@@ -165,5 +151,5 @@ export SSH_PASS="<passwort>"
 ./validate.sh <user> <ipv6>
 ```
 
-Gibt pro Dienst, Werkzeug und Kursdatei einen eigenen Fehler aus. Braucht
-`sshpass`.
+Zeigt zuerst den Stand der Einrichtung, danach pro Dienst, Werkzeug und Kursdatei einen eigenen
+Fehler. Braucht `sshpass`.

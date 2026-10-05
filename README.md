@@ -1,6 +1,7 @@
 # Kali Linux Desktop App
 
 Kali-VM mit XFCE-Desktop und kuratierten Security-Werkzeugen für den OpenStack App Store.
+Bereitgestellt mit **OpenTofu**, ohne Image-Build.
 
 ## Features
 
@@ -9,48 +10,50 @@ Kali-VM mit XFCE-Desktop und kuratierten Security-Werkzeugen für den OpenStack 
 - **Desktop-Integration:** Starter, Autostart, Kursverzeichnis `~/kali-kurs/`
 - **Multi-User:** Geteilte VM, pro Nutzer eigene RDP-Session + Account
 
-## 0. Basis-Image: Debian, umgestellt auf Kali
+## 0. So entsteht die VM
 
-In OpenStack liegt kein Kali-Image. Images können nur die Cloud-Admins hinzufügen, der App Store
-selbst lädt keine hoch.
+Es gibt keinen Image-Build (kein Packer) und kein Kali-Image in OpenStack. Images können nur die
+Cloud-Admins hinzufügen.
 
-Die App baut deshalb auf dem vorhandenen Image **„Debian 13“** auf (`source_image_name` in
-`packer/variables.pkr.hcl`, im App-Store-Formular auswählbar). `01-base.sh` stellt es während des
-Builds vollständig auf **Kali (kali-rolling)** um. Das Ergebnis ist echtes Kali, getestet ab Debian
-12 und 13.
+1. OpenTofu startet die VM aus dem vorhandenen Image **„Debian 13“** (`source_image_name`).
+2. Beim **ersten Start** führt cloud-init `terraform/scripts/setup.sh` aus. Das Skript stellt
+   Debian vollständig auf **Kali (kali-rolling)** um und installiert Desktop, Werkzeuge und
+   Kursmaterial.
+3. Ist alles durchgelaufen, startet die VM einmal neu und ist bereit.
 
-Was das bedeutet:
+**Wichtig: Die VM ist nicht sofort nutzbar.** `tofu apply` ist fertig, sobald die VM läuft. Die
+Einrichtung danach lädt mehrere GB und dauert deutlich länger. Bewusst wartet `apply` **nicht**
+darauf, weil der App-Store-worker `apply` nach 30 Minuten abbricht. Den Stand sieht man so:
 
-- Beim Deployen bei `source_image_name` **„Debian 13“** auswählen. Das ist der Default.
-- Die Build-VM braucht Internetzugang zu `archive.kali.org` und `http.kali.org`.
-- Der Build dauert länger als bei einem fertigen Image (Upgrade auf Kali). Der App Store baut aber
-  nur einmal pro Commit.
-- Die Build-VM braucht mindestens **15 GB** freien Plattenplatz. `01-base.sh` prüft das vorab.
+| Wo | Was |
+|---|---|
+| SSH-Login (`/etc/motd`) | ⏳ läuft noch / ✅ bereit / ❌ fehlgeschlagen |
+| `/var/log/kali-app-setup.log` | vollständiges Protokoll, lesbar für alle Accounts |
+| `/var/lib/kali-app/ready` | existiert genau dann, wenn alles durchlief |
+| `validate.sh` | zeigt zuerst den Stand der Einrichtung |
 
-Sollten die Admins einmal ein echtes Kali-Image bereitstellen, kann der Debian-Umbau in
-`01-base.sh` entfallen.
+SSH funktioniert schon während der Einrichtung, RDP erst danach.
+
+Voraussetzungen: Die VM braucht Internetzugang zu `archive.kali.org` und `http.kali.org`, und
+mindestens **15 GB** freien Plattenplatz (`01-base.sh` prüft das vorab).
 
 ## 1. Deployment
 
 ### Weg A: App Store
 
 1. Credentials hinterlegen (App Store)
-2. Git-URL + Release registrieren
+2. Git-URL registrieren, Release-Tag anlegen (der App Store zeigt Tags als Versionen)
 3. Admin-Freigabe
-4. Deployment starten
+4. Deployment starten, Version wählen
+
+Nach jedem Merge nach `main` braucht es ein **neues Tag**, sonst sieht der App Store die Änderung
+nicht. Ein Tag zeigt fest auf einen Commit und wandert nicht mit `main` mit.
 
 ### Weg B: Manuell
 
 ```bash
-# Image bauen
-cd packer
-packer init .
-packer build -var image_name=kali-app-v1 .
-
-# VM erzeugen
-cd ../terraform
+cd terraform
 cat > meine.auto.tfvars <<'EOF'
-image_name = "kali-app-v1"
 users = {
   "Team 1" = [
     { email = "vorname.nachname@dhbw.de" }
@@ -58,50 +61,56 @@ users = {
 }
 EOF
 
-terraform init
-terraform apply
+tofu init
+tofu apply
 
 # Zugangsdaten
-terraform output -json user_accounts
+tofu output -json user_accounts
 
-# Validieren (cloud-init braucht nach dem apply noch ~3 Minuten)
+# Stand der Einrichtung + Validierung
 export SSH_PASS="<passwort>"
 ../validate.sh <username> <ipv6-address>
 
-# Verbinden
+# Verbinden (wenn validate.sh grün ist)
 # Windows: mstsc -> [2001:7c0:...]:3389
 # Linux:   ssh username@2001:7c0:...
 
 # Aufräumen
-terraform destroy
-openstack image delete kali-app-v1
+tofu destroy
 ```
 
 ## 2. Aufbau
 
 | Datei | Aufgabe |
 |---|---|
-| `packer/template.pkr.hcl` | Build-Definition, ruft die Steps auf |
-| `packer/scripts/01-base.sh` | Debian → Kali umstellen, debconf, Basispakete |
-| `packer/scripts/02-desktop.sh` | XFCE, XRDP (IPv6-Binding) |
-| `packer/scripts/03-tools.sh` | Kali-Werkzeuge |
-| `packer/scripts/04-integration.sh` | Desktop-Starter, Kursverzeichnis |
-| `packer/scripts/05-verify.sh` | Post-Build-Checks + Image-Hygiene |
-| `terraform/main.tf` | VM + Security Group + User-Ableitung |
-| `terraform/cloud-init-multi-user.yml.tpl` | Erster Boot |
+| `terraform/main.tf` | VM + Security Group + User-Ableitung, liefert `scripts/` mit aus |
+| `terraform/cloud-init-multi-user.yml.tpl` | Accounts, Skripte, Start von `setup.sh`, Neustart |
+| `terraform/scripts/setup.sh` | Führt alle `NN-*.sh` der Reihe nach aus, Status in motd/Log |
+| `terraform/scripts/01-base.sh` | Debian → Kali umstellen, debconf, Basispakete |
+| `terraform/scripts/02-desktop.sh` | XFCE, XRDP (IPv6-Binding) |
+| `terraform/scripts/03-tools.sh` | Kali-Werkzeuge |
+| `terraform/scripts/04-integration.sh` | Desktop-Starter, Kursverzeichnis in `/etc/skel` |
+| `terraform/scripts/05-users.sh` | Kursmaterial in die bereits angelegten Accounts, Gruppe `wireshark` |
+| `terraform/scripts/06-verify.sh` | Checks: Kali, Programme, XRDP-IPv6, Kursinhalte |
 | `terraform/outputs.tf` | Zugangsdaten (Contract) |
-| `validate.sh` | Post-Deployment-Test |
+| `validate.sh` | Test nach dem Deployment |
 
-**Ablauf:** Packer startet das Debian-Image, stellt auf Kali um und baut das Image → Terraform erzeugt die VM → cloud-init legt Nutzer an und startet die Dienste.
+Der Ordner heißt weiter `terraform/`, OpenTofu liest dieselben `.tf`-Dateien.
 
-Die Steps werden von Packer selbst der Reihe nach hochgeladen und ausgeführt (`scripts = [...]` in `template.pkr.hcl`). Einen Orchestrator auf der Build-VM gibt es bewusst nicht: Packer lädt nur die dort genannten Dateien hoch, ein Skript, das andere aufruft, fände sie nicht vor.
+`main.tf` liefert **jedes** `*.sh` aus `scripts/` aus (gzip+base64 in der `user_data`, Limit
+64 KB), und `setup.sh` führt jedes `NN-*.sh` in Namensreihenfolge aus. Ein neuer Schritt braucht
+nur eine neue Datei mit Nummernpräfix. Eine Liste, die man vergessen kann, gibt es nicht.
+
+`05-users.sh` gibt es, weil cloud-init die Accounts **vor** der Einrichtung anlegt. Zu diesem
+Zeitpunkt ist `/etc/skel` noch leer, und `useradd` kopiert es nur beim Anlegen.
 
 ## 3. VM-Deployment
 
 | | |
 |---|---|
 | VMs | 1 (geteilt) |
-| Flavor | win11.medium (2 vCPU, 8 GB RAM, 80 GB). `gp1` hat nur 10 GB Platte, zu wenig für Kali mit Desktop. Im Formular als `flavor` wählbar, Packer und Terraform müssen denselben Flavor nutzen. |
+| Basis-Image | „Debian 13“, im Formular als `source_image_name` wählbar |
+| Flavor | win11.medium (2 vCPU, 8 GB RAM, 80 GB). `gp1` hat nur 10 GB Platte, zu wenig für Kali mit Desktop. Im Formular als `flavor` wählbar. |
 | Netz | IPv6 (DHBWV6) |
 | RDP-Port | 3389 (eigene Security Group) |
 
@@ -111,7 +120,8 @@ Es gibt **keine Floating IP**: sie ließe sich anlegen, aber nicht zuweisen, wei
 
 | Variable | Beschreibung | Default |
 |---|---|---|
-| `image_name` | Glance-Image-Name (Pflicht) | — |
+| `source_image_name` | Debian-Basis-Image | `Debian 13` |
+| `flavor` | Flavor der VM (mind. 20 GB Platte) | `win11.medium` |
 | `network_uuid` | Netzwerk-ID | 9b579624-… |
 | `shared_secgroup_id` | Security Group | 7ca4f889-… |
 | `rdp_source_cidr` | RDP-Quellpräfix (IPv6) | `::/0` |
@@ -120,23 +130,23 @@ Es gibt **keine Floating IP**: sie ließe sich anlegen, aber nicht zuweisen, wei
 
 ## 5. Anpassungen
 
-- **Werkzeuge:** `packer/scripts/03-tools.sh`
-- **Dienste beim Boot:** `terraform/cloud-init-multi-user.yml.tpl`
+- **Werkzeuge:** `terraform/scripts/03-tools.sh`
+- **Neuer Einrichtungsschritt:** neue Datei `terraform/scripts/NN-name.sh`. Ohne Nummernpräfix läuft
+  sie nie, das prüft die CI.
 - **Outputs:** Contract-Struktur in `outputs.tf` behalten, nur Werte ändern
-
-Neue Build-Steps müssen in `template.pkr.hcl` in die `scripts`-Liste eingetragen werden, sonst werden sie nicht hochgeladen.
 
 ## 6. Was geprüft wird
 
 | Ebene | Prüfung | Läuft wann |
 |---|---|---|
+| CI (`Shell`) | Einrichtungsschritte heißen `NN-*.sh` | Jeder Push |
 | CI (`Shell`) | `bash -n`, jede Warnung ist ein Fehler | Jeder Push |
 | CI (`Shell`) | `shellcheck --severity=warning` | Jeder Push |
 | CI (`Shell`) | `04-integration.sh` gegen Wegwerf-Wurzel ausführen, Ergebnis prüfen | Jeder Push |
-| CI (`Packer`/`Terraform`) | `fmt`, `validate`, `tflint`, `tfsec` | Jeder Push |
-| Build | `05-verify.sh`: Programme, XRDP-IPv6-Konfiguration, Kursinhalte | Im Image-Build |
-| Plan | Precondition gegen doppelte Benutzernamen | `terraform plan` |
-| Boot | cloud-init prüft SSH/XRDP aktiv **und** Port 3389 auf IPv6 | Erster Boot |
+| CI (`OpenTofu`) | `tofu fmt`, `tofu validate`, `tflint`, `tfsec` | Jeder Push |
+| Plan | Precondition gegen doppelte Benutzernamen | `tofu plan` |
+| Erster Start | `06-verify.sh`: Kali, Programme, XRDP-IPv6-Konfiguration, Kursinhalte | Auf der VM |
+| Erster Start | `setup.sh`: SSH/XRDP aktiv **und** Port 3389 auf IPv6 | Auf der VM |
 | Deployment | `validate.sh` über SSH | Manuell |
 
 Geprüft wird, wo möglich, Funktion statt Existenz. Hintergrund: ein unterminiertes Here-Document hat den Skriptquelltext in eine Kursdatei geschrieben und 25 Zeilen nie ausgeführt — `set -e`, der `ERR`-trap und alle Existenz-Checks blieben grün, weil die Datei ja da war.
@@ -154,7 +164,9 @@ Diese Werkzeuge dürfen **nur auf freigegebenen Zielen** eingesetzt werden:
 ## Bekannte Einschränkungen
 
 - Die Passwörter stehen im Klartext in `user_data` und sind auf der VM über den Metadaten-Dienst lesbar (`curl http://169.254.169.254/openstack/latest/user_data`). Auf einer geteilten VM heißt das: jede:r sieht die Passwörter der anderen. Da alle Accounts ohnehin `sudo` haben, ändert das die Vertrauensgrenze nicht — für eine Kurs-VM akzeptabel, für Produktivbetrieb nicht.
-- Dieselbe Person darf nur in **einem** Team stehen. Sonst bricht `terraform plan` mit einer Meldung über doppelte Benutzernamen ab.
+- Dieselbe Person darf nur in **einem** Team stehen. Sonst bricht `tofu plan` mit einer Meldung über doppelte Benutzernamen ab.
+- Jede neue VM lädt Kali und alle Werkzeuge beim ersten Start neu herunter. Mit einem Image-Build
+  passierte das einmal pro Version.
 
 ---
 
