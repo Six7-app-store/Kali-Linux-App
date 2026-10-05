@@ -53,10 +53,28 @@ echo ""
 sshpass -p "$PASSWORD" ssh "${SSH_OPTS[@]}" -o ConnectTimeout=10 \
   "$USERNAME@$IPV6" 'echo OK' >/dev/null 2>&1 || {
   echo "❌ SSH-Verbindung fehlgeschlagen"
-  echo "   IPv6-Adresse korrekt? Security Group offen? cloud-init noch am Laufen?"
-  echo "   Hinweis: nach 'terraform apply' dauert cloud-init noch ~3 Minuten."
+  echo "   IPv6-Adresse korrekt? Security Group offen? VM noch im ersten Start?"
   exit 1
 }
+
+# Die VM richtet sich beim ersten Start selbst ein (Debian -> Kali, Desktop,
+# Werkzeuge). Solange das laeuft, waeren alle folgenden Checks rot - also
+# zuerst den Stand der Einrichtung zeigen statt einer Liste von Fehlern.
+echo "=== Einrichtung beim ersten Start ==="
+if ! sshpass -p "$PASSWORD" ssh "${SSH_OPTS[@]}" "$USERNAME@$IPV6" 'test -f /var/lib/kali-app/ready' 2>/dev/null; then
+  stand="$(sshpass -p "$PASSWORD" ssh "${SSH_OPTS[@]}" "$USERNAME@$IPV6" \
+    'grep -E "^===|❌" /var/log/kali-app-setup.log 2>/dev/null | tail -3' 2>/dev/null)"
+  if printf '%s' "$stand" | grep -q '❌'; then
+    echo "❌ Einrichtung fehlgeschlagen. Letzte Meldungen:"
+  else
+    echo "⏳ Einrichtung laeuft noch. Letzter Schritt:"
+  fi
+  printf '%s\n' "${stand:-   (noch kein Protokoll - cloud-init startet gerade)}" | sed 's/^/   /'
+  echo "   Vollstaendig: ssh $USERNAME@$IPV6 'tail -f /var/log/kali-app-setup.log'"
+  exit 1
+fi
+echo "  ✓ Einrichtung abgeschlossen"
+echo ""
 
 echo "=== Dienste ==="
 run_check "SSH" 'systemctl is-active ssh'
