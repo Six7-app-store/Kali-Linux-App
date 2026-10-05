@@ -14,14 +14,14 @@ Kali-VM mit XFCE-Desktop und kuratierten Security-Werkzeugen für den OpenStack 
 In OpenStack liegt kein Kali-Image. Images können nur die Cloud-Admins hinzufügen, der App Store
 selbst lädt keine hoch.
 
-Die App baut deshalb auf dem vorhandenen Image **„Debian“** auf (`source_image_name` in
+Die App baut deshalb auf dem vorhandenen Image **„Debian 13“** auf (`source_image_name` in
 `packer/variables.pkr.hcl`, im App-Store-Formular auswählbar). `01-base.sh` stellt es während des
 Builds vollständig auf **Kali (kali-rolling)** um. Das Ergebnis ist echtes Kali, getestet ab Debian
 12 und 13.
 
 Was das bedeutet:
 
-- Beim Deployen bei `source_image_name` **„Debian“** auswählen. Das ist der Default.
+- Beim Deployen bei `source_image_name` **„Debian 13“** auswählen. Das ist der Default.
 - Die Build-VM braucht Internetzugang zu `archive.kali.org` und `http.kali.org`.
 - Der Build dauert länger als bei einem fertigen Image (Upgrade auf Kali). Der App Store baut aber
   nur einmal pro Commit.

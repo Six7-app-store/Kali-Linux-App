@@ -7,11 +7,6 @@ packer {
   }
 }
 
-locals {
-  # Einmalpasswort fuer den Build-Benutzer, bei jedem Build neu.
-  build_password = uuidv4()
-}
-
 source "openstack" "image" {
   cloud             = "openstack"
   image_name        = var.image_name
@@ -22,28 +17,28 @@ source "openstack" "image" {
 
   # Eigener Build-Benutzer statt des Standardbenutzers des Images.
   #
-  # Welcher Benutzer im Debian-Image steckt, ist nicht dokumentiert - "debian"
-  # (offizielle Cloud-Images) wurde abgelehnt ("unable to authenticate").
-  # cloud-init legt "packer" deshalb beim ersten Start selbst an; das klappt mit
-  # jedem cloud-init-Image. 05-verify.sh sperrt den Benutzer wieder, die
-  # cloud-init-Vorlage in terraform/ loescht ihn auf den Studi-VMs.
+  # Welcher Standardbenutzer im Debian-Image steckt, ist nicht dokumentiert -
+  # "debian" wurde abgelehnt. Passwort-Login bietet der sshd des Images gar nicht
+  # an (nur "publickey"), ein Build-Passwort ist also wirkungslos.
+  #
+  # Was sicher funktioniert: cloud-init hinterlegt Packers temporaeren Schluessel
+  # beim Standardbenutzer (und mit Sperr-Hinweis bei root). runcmd kopiert jeden
+  # dort gefundenen Schluessel - ohne Optionen wie command="..." - zu "packer".
+  # Bis runcmd gelaufen ist, scheitert der Login; Packer versucht es bis
+  # ssh_timeout weiter.
+  #
+  # 05-verify.sh sperrt "packer" und entfernt alle authorized_keys wieder, die
+  # cloud-init-Vorlage in terraform/ loescht den Benutzer auf den Studi-VMs.
   ssh_username = "packer"
-  ssh_password = local.build_password
   user_data    = <<-EOF
     #cloud-config
-    ssh_pwauth: true
     users:
       - default
       - name: packer
         shell: /bin/bash
         sudo: "ALL=(ALL) NOPASSWD:ALL"
-        lock_passwd: false
-    chpasswd:
-      expire: false
-      users:
-        - name: packer
-          password: "${local.build_password}"
-          type: text
+    runcmd:
+      - [sh, -c, "install -d -m 700 /home/packer/.ssh && cat /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys 2>/dev/null | grep -oE '(ssh-(rsa|ed25519)|ecdsa-sha2-nistp[0-9]+) [A-Za-z0-9+/=]+' | sort -u > /home/packer/.ssh/authorized_keys; chown -R packer:packer /home/packer/.ssh; chmod 600 /home/packer/.ssh/authorized_keys"]
   EOF
 
   ssh_timeout = "20m"
