@@ -1,5 +1,10 @@
 #cloud-config
 
+# Kein Image-Build: die VM startet als Debian 13 und richtet sich hier beim
+# ersten Start selbst ein (Umstellung auf Kali, Desktop, Werkzeuge, Kursordner).
+# Das dauert deutlich laenger als ein Start aus einem fertigen Image; Fortschritt
+# in /var/log/kali-app-setup.log, Status in /etc/motd.
+
 ssh_pwauth: true
 
 # Je ein Listeneintrag pro Paket. Eine einzelne Zeile mit Leerzeichen waere
@@ -18,23 +23,45 @@ groups:
   - ${jsonencode(group)}
 %{ endfor ~}
 
+# "wireshark" fehlt hier absichtlich: die Gruppe entsteht erst mit dem Paket in
+# 03-tools.sh. Eine unbekannte Gruppe liesse useradd scheitern und der Account
+# wuerde gar nicht angelegt. 05-users.sh traegt die Accounts nach.
 users:
 %{ for idx, user in all_users ~}
   - name: ${jsonencode(user.username)}
     shell: /bin/bash
-    sudo: ['ALL=(ALL) ALL']
-    groups: [${jsonencode(user.group)}, "sudo", "wireshark"]
+    sudo: "ALL=(ALL) ALL"
+    groups: [${jsonencode(user.group)}, "sudo"]
     lock_passwd: false
 %{ endfor ~}
 
 write_files:
-  - path: /etc/ssh/sshd_config.d/99-custom.conf
+  # 00- statt 99-: sshd nimmt bei doppelten Angaben den ERSTEN Wert, Drop-ins
+  # werden alphabetisch gelesen. Ein mitgeliefertes "PasswordAuthentication no"
+  # des Basis-Images (z. B. 50-cloud-init.conf) wuerde 99- sonst ueberstimmen.
+  - path: /etc/ssh/sshd_config.d/00-kali-app.conf
     content: |
       PasswordAuthentication yes
       PubkeyAuthentication yes
       PermitRootLogin no
       UsePAM yes
     permissions: '0644'
+  - path: /etc/motd
+    content: |
+
+        ⏳ Diese Kali-VM richtet sich noch ein (Umstellung auf Kali, Desktop,
+           Werkzeuge). Remotedesktop geht erst danach.
+           Fortschritt: tail -f /var/log/kali-app-setup.log
+
+    permissions: '0644'
+  # Einrichtungsskripte aus terraform/scripts/, gzip+base64 wegen des
+  # user_data-Limits von 64 KB.
+%{ for name, content in scripts ~}
+  - path: /opt/kali-app/${name}
+    encoding: gz+b64
+    content: ${content}
+    permissions: '0755'
+%{ endfor ~}
 
 chpasswd:
   expire: false
@@ -45,39 +72,20 @@ chpasswd:
       type: text
 %{ endfor ~}
 
-# Keine ufw-Regeln: ufw ist im Kali-Cloud-Image nicht installiert, die Befehle
-# schlugen hier still fehl. Gefiltert wird in OpenStack ohnehin eine Ebene
-# tiefer durch die Security Groups (SSH via shared_secgroup_id, RDP via der
-# App-eigenen Gruppe in main.tf) - eine Host-Firewall waere nur eine zweite,
-# unabhaengig zu pflegende Wahrheit.
+# Keine ufw-Regeln: gefiltert wird in OpenStack durch die Security Groups (SSH
+# via shared_secgroup_id, RDP via der App-eigenen Gruppe in main.tf).
 runcmd:
-  # Build-Benutzer aus dem Packer-Image (dort schon gesperrt) endgueltig entfernen.
-  - userdel -r packer 2>/dev/null || true
-  - systemctl restart ssh || { echo "SSH Restart fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
-  - systemctl enable --now xrdp xrdp-sesman || { echo "XRDP enable fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
-  - systemctl restart xrdp || { echo "XRDP restart fehlgeschlagen" >> /var/log/setup-complete.log; exit 1; }
-  - |
-    [ "$(systemctl is-active ssh)" = "active" ] || { echo "SSH nicht aktiv" >> /var/log/setup-complete.log; exit 1; }
-  - |
-    [ "$(systemctl is-active xrdp)" = "active" ] || { echo "XRDP nicht aktiv" >> /var/log/setup-complete.log; exit 1; }
-  - |
-    # Nicht nur "laeuft der Dienst", sondern "lauscht er auf IPv6". Ein auf
-    # IPv4 gebundener XRDP waere im DHBWV6-Netz nicht erreichbar.
-    ss -tln | grep -q '\[::\]:3389' || { echo "XRDP lauscht nicht auf IPv6:3389" >> /var/log/setup-complete.log; exit 1; }
-  - |
-    cat >> /var/log/setup-complete.log <<'SETUPLOG'
-    ================================================
-    Setup erfolgreich
-    ================================================
-    SETUPLOG
-  - date >> /var/log/setup-complete.log
+  - ["bash", "/opt/kali-app/setup.sh"%{ for user in all_users ~}, ${jsonencode(user.username)}%{ endfor ~}]
+
+# Einmal neu starten, damit Kernel, systemd und Dienste aus Kali laufen statt
+# der Debian-Versionen, die beim Upgrade noch im Speicher waren. Nur wenn die
+# Einrichtung durchlief - sonst bleibt die VM fuer die Fehlersuche so stehen.
+power_state:
+  mode: reboot
+  message: "Kali-Einrichtung abgeschlossen, Neustart"
+  condition: "test -f /var/lib/kali-app/ready"
 
 final_message: |
-  ================================================
-  Kali-Desktop bereit!
-  ================================================
+  Kali-App: cloud-init fertig nach $UPTIME s.
   Teams: ${join(", ", unique_teams)}
   Nutzer: ${length(all_users)}
-  RDP: [<ipv6>]:3389
-  SSH: ssh <user>@<ipv6>
-  ================================================

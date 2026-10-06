@@ -3,7 +3,7 @@
 # Anlass: ein unterminiertes Here-Document in 04-integration.sh hat den
 # restlichen Skriptquelltext in eine Kursdatei geschrieben und die letzten 25
 # Zeilen nie ausgefuehrt. Weder "set -e" noch der ERR-trap noch die
-# Post-Build-Checks haben das gesehen - "bash -n" meldet es sofort, allerdings
+# Verifikations-Checks haben das gesehen - "bash -n" meldet es sofort, allerdings
 # nur als Warnung auf stderr und mit Exit-Code 0. Deshalb gilt hier jede
 # Ausgabe als Fehler.
 
@@ -32,40 +32,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # "packer validate -syntax-only" prueft NICHT, ob die Dateien in der
-      # scripts-Liste existieren. Genau daran ist der Build vorher gescheitert:
-      # die Steps lagen im Repo, waren aber nicht eingetragen und wurden nie
-      # auf die Build-VM hochgeladen.
-      - name: Build-Steps sind vollstaendig eingetragen
+      # main.tf liefert jedes *.sh aus terraform/scripts/ aus, setup.sh fuehrt
+      # davon aber nur NN-*.sh aus. Eine Datei ohne Nummernpraefix laege auf
+      # der VM und liefe nie - ohne jede Fehlermeldung.
+      - name: Einrichtungsschritte richtig benannt
         run: |
           fehler=0
-          eingetragen="$(grep -oE '"scripts/[^"]+\.sh"' packer/template.pkr.hcl | tr -d '"' | sort)"
-
-          for s in $eingetragen; do
-            if [ ! -f "packer/$s" ]; then
-              echo "::error file=packer/template.pkr.hcl::$s ist eingetragen, existiert aber nicht"
+          for f in terraform/scripts/*.sh; do
+            name="$(basename "$f")"
+            [ "$name" = "setup.sh" ] && continue
+            if ! printf '%s' "$name" | grep -qE '^[0-9]{2}-.+\.sh$'; then
+              echo "::error file=$f::$name passt nicht auf NN-*.sh und wird von setup.sh nie ausgefuehrt"
               fehler=1
             fi
           done
-
-          vorhanden="$(cd packer && find scripts -name '*.sh' -type f | sort)"
-          for f in $vorhanden; do
-            if ! printf '%s\n' "$eingetragen" | grep -qxF "$f"; then
-              echo "::error file=packer/$f::liegt im Repo, fehlt aber in der scripts-Liste - wird nie hochgeladen"
-              fehler=1
-            fi
-          done
-
           if [ "$fehler" -eq 0 ]; then
-            echo "Alle Build-Steps eingetragen:"
-            printf '  %s\n' $eingetragen
+            echo "Reihenfolge, in der setup.sh die Schritte ausfuehrt:"
+            for f in terraform/scripts/[0-9][0-9]-*.sh; do echo "  $(basename "$f")"; done
           fi
           exit "$fehler"
 
       - name: Syntaxpruefung (jede Ausgabe ist ein Fehler)
         run: |
           fehler=0
-          for f in packer/scripts/*.sh validate.sh; do
+          for f in terraform/scripts/*.sh validate.sh; do
             if ! out="$(bash -n "$f" 2>&1)"; then
               echo "::error file=$f::Syntaxfehler"
               fehler=1
@@ -83,7 +73,7 @@ jobs:
       # ausgelaufene Here-Documents, nicht expandierte Globs in Umleitungen
       # und lokal statt remote expandierte $(...) ab.
       - name: ShellCheck
-        run: shellcheck --severity=warning --shell=bash packer/scripts/*.sh validate.sh
+        run: shellcheck --severity=warning --shell=bash terraform/scripts/*.sh validate.sh
 
       - name: Kursverzeichnis wirklich bauen
         run: |
@@ -96,7 +86,7 @@ jobs:
             -e "s#^SKEL=\"/etc/skel\"#SKEL=\"$ROOT/etc/skel\"#" \
             -e "s#/usr/local/bin#$ROOT/usr/local/bin#g" \
             -e "s#/etc/xdg/user-dirs.conf#$ROOT/etc/xdg/user-dirs.conf#" \
-            packer/scripts/04-integration.sh > "$ROOT/run.sh"
+            terraform/scripts/04-integration.sh > "$ROOT/run.sh"
           bash "$ROOT/run.sh"
 
           KURS="$ROOT/etc/skel/kali-kurs"

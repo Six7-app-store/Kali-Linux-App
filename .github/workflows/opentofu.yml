@@ -1,0 +1,67 @@
+# Statische Pruefung der OpenTofu-Konfiguration: fmt, validate, tflint, tfsec.
+#
+# Kein Remote-Backend - deshalb "init -backend=false". Es wird hier auch nichts
+# geplant oder angewendet: das braeuchte OpenStack-Credentials, die dieses Repo
+# bewusst nicht kennt. Der Ordner heisst weiter terraform/, OpenTofu liest
+# dieselben .tf-Dateien.
+
+name: 'OpenTofu'
+
+on:
+  push:
+  pull_request:
+    branches: [ "main" ]
+  release:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  opentofu:
+    name: 'OpenTofu'
+    runs-on: ubuntu-latest
+    environment: production
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: terraform
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # Dieselbe Version, mit der lokal getestet wurde.
+    - name: Setup OpenTofu
+      uses: opentofu/setup-opentofu@v1
+      with:
+        tofu_version: 1.10.6
+
+    # Ohne Backend: es geht nur um Syntax und Provider-Schemata
+    # (Provider kommen aus registry.opentofu.org).
+    - name: OpenTofu Init
+      run: tofu init -backend=false
+
+    - name: OpenTofu Format
+      run: tofu fmt -check -recursive
+
+    - name: OpenTofu Validate
+      run: tofu validate
+
+    - name: Setup TFLint
+      uses: terraform-linters/setup-tflint@v4
+      with:
+        tflint_version: latest
+
+    - name: Init TFLint
+      run: tflint --init
+
+    - name: Run TFLint
+      run: tflint --recursive
+
+    - name: Run tfsec
+      uses: aquasecurity/tfsec-action@v1.0.3
+      with:
+        working_directory: terraform
+        soft_fail: false
