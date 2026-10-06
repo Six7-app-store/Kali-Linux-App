@@ -10,6 +10,16 @@ variable "users" {
   default = {}
 }
 
+# Ungenutzt. Der worker setzt image_name noch aus der Zeit mit gebautem
+# Kali-Image. Ohne diese Deklaration bricht tofu apply mit "Value for
+# undeclared variable" ab. Entfernen, sobald der worker sie nicht mehr setzt.
+# tflint-ignore: terraform_unused_declarations
+variable "image_name" {
+  description = "Ungenutzt, nur fuer Kompatibilitaet mit dem worker. @platform:internal"
+  type        = string
+  default     = ""
+}
+
 ################################################
 # Konfigurierbare Variablen
 ################################################

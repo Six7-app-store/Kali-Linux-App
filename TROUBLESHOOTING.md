@@ -17,9 +17,10 @@ cloud-init status --long                   # done / running / error
 
 ## `tofu apply` fehlgeschlagen
 
-**„Value for undeclared variable" / „image_name"**
-→ Der worker übergibt noch eine Variable aus der Packer-Zeit (`image_name`). Ohne Image-Build gibt
-es sie nicht mehr. Im worker entfernen, oder als ungenutzte Variable in `variables.tf` deklarieren.
+**„Value for undeclared variable"**
+→ Der worker übergibt eine Variable, die `terraform/variables.tf` nicht kennt. `image_name` ist
+deshalb noch als ungenutzte Variable deklariert. Für jede weitere: im worker entfernen oder genauso
+deklarieren.
 
 **„No image was found … Debian 13"**
 → Das Image heißt in eurem OpenStack anders. Im Deploy-Formular bei `source_image_name` das
