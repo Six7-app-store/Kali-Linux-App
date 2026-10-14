@@ -1,4 +1,4 @@
-# Statische Pruefung der OpenTofu-Konfiguration: fmt, validate.
+# Pruefung der OpenTofu-Konfiguration: fmt, validate, test (gemockt).
 #
 # Kein Remote-Backend - deshalb "init -backend=false". Es wird hier auch nichts
 # geplant oder angewendet: das braeuchte OpenStack-Credentials, die dieses Repo
@@ -51,4 +51,8 @@ jobs:
 
     - name: OpenTofu Validate
       run: tofu validate
+
+    # Gemockte Provider: prueft die Ausgaben ohne OpenStack-Zugang.
+    - name: OpenTofu Test
+      run: tofu test
 
