@@ -6,7 +6,13 @@
 locals {
   # Einziges oeffentlich erreichbares Ziel der VM. Es gibt bewusst keine
   # Floating IP (siehe main.tofu).
-  vm_ipv6 = openstack_compute_instance_v2.shared_vm.network[0].fixed_ip_v6
+  #
+  # Genau einmal in eckigen Klammern: der Provider liefert fixed_ip_v6 schon
+  # als "[2001:...]", und der App Store setzt ip und port ungeprueft zu
+  # "ip:port" zusammen - ohne Klammern laese der Client den letzten ":" der
+  # Adresse als Port-Trenner. trim() macht das unabhaengig davon, ob eine
+  # Provider-Version die Klammern liefert.
+  vm_ipv6 = "[${trim(openstack_compute_instance_v2.shared_vm.network[0].fixed_ip_v6, "[]")}]"
 }
 
 output "user_accounts" {
@@ -40,10 +46,9 @@ output "team_vms" {
         username = local.usernames[i]
         team     = local.all_users[i].team
 
-        # RDP-Ziel für die Windows-Remotedesktopverbindung. Die eckigen Klammern
-        # um die IPv6-Adresse sind Pflicht, sonst liest der Client den letzten
-        # ":" als Port-Trenner.
-        rdp_target = "[${local.vm_ipv6}]:3389"
+        # RDP-Ziel für die Windows-Remotedesktopverbindung. Die Klammern um die
+        # IPv6-Adresse bringt local.vm_ipv6 schon mit.
+        rdp_target = "${local.vm_ipv6}:3389"
 
         # Terminal-Zugang bleibt dokumentiert.
         ssh_command = "ssh ${local.usernames[i]}@${local.vm_ipv6}"
