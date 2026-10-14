@@ -8,7 +8,7 @@ set -euo pipefail
 # Fuehrt alle nummerierten Skripte (NN-*.sh) in diesem Verzeichnis in
 # Namensreihenfolge aus und reicht die Studi-Accounts an jedes durch. Ein neuer
 # Schritt braucht deshalb nur eine neue Datei - keine Liste, die man vergessen
-# kann nachzutragen (siehe main.tf: es wird das ganze Verzeichnis ausgeliefert).
+# kann nachzutragen (siehe main.tofu: es wird das ganze Verzeichnis ausgeliefert).
 #
 # Status fuer Menschen:
 #   /var/log/kali-app-setup.log   vollstaendiges Protokoll (lesbar fuer alle)

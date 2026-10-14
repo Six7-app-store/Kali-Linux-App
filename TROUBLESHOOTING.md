@@ -18,13 +18,13 @@ cloud-init status --long                   # done / running / error
 ## `tofu apply` fehlgeschlagen
 
 **„Value for undeclared variable"**
-→ Der worker übergibt eine Variable, die `terraform/variables.tf` nicht kennt. `image_name` ist
-deshalb noch als ungenutzte Variable deklariert. Für jede weitere: im worker entfernen oder genauso
-deklarieren.
+→ Der worker übergibt eine Variable, die `tofu/variables.tofu` nicht kennt. Der heutige worker
+setzt außer `users` nichts selbst; ein älterer setzte noch `image_name` und lehnt `tofu/` ohnehin
+ab. Für jede weitere: im worker entfernen oder in `variables.tofu` deklarieren.
 
 **„No image was found … Debian 13"**
 → Das Image heißt in eurem OpenStack anders. Im Deploy-Formular bei `source_image_name` das
-Debian-Image aus der Liste wählen und den exakten Namen als Default in `terraform/variables.tf`
+Debian-Image aus der Liste wählen und den exakten Namen als Default in `tofu/variables.tofu`
 eintragen.
 
 **„Roster ergibt doppelte Linux-Benutzernamen"**
@@ -33,7 +33,7 @@ bereinigen, sonst teilten sich zwei Studierende einen Account und das zweite Pas
 das erste.
 
 **„Security group not found"**
-→ SG-UUID in `variables.tf` existiert nicht (`openstack security group list`).
+→ SG-UUID in `variables.tofu` existiert nicht (`openstack security group list`).
 
 **„template rendering failed"**
 → YAML-Syntax in `cloud-init-multi-user.yml.tpl` kaputt. `tofu console` → manuell rendern.
