@@ -159,10 +159,12 @@ resource "openstack_compute_instance_v2" "shared_vm" {
   flavor_name = var.flavor
   key_pair    = local.key_pair != "" ? local.key_pair : null
 
-  # openstack_compute_instance_v2 erwartet Security-Group-NAMEN, nicht IDs -
-  # deshalb hier .name der selbst angelegten Gruppe. Die geteilte SG kommt als
-  # UUID/Name aus der Variable.
-  security_groups = [var.shared_secgroup_id, openstack_networking_secgroup_v2.rdp.name]
+  # Per ID, nicht per Name: Nova nimmt beides an (die geteilte SG kommt
+  # ohnehin als UUID). Ein Name ist aber nicht eindeutig - steht von einem
+  # anderen oder unvollstaendig abgeraeumten Deployment noch eine zweite
+  # "kali-user-rdp" im Projekt, lehnt Nova die VM ab und apply scheitert.
+  # Gesehen am 14.10.2026 bei zwei Deploys von v2.0.1.
+  security_groups = [var.shared_secgroup_id, openstack_networking_secgroup_v2.rdp.id]
 
   timeouts {
     create = "15m"
