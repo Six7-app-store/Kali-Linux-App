@@ -55,3 +55,25 @@ run "rdp_ziel_ohne_klammern_vom_provider" {
     error_message = "Auch ohne Klammern vom Provider muss genau ein Paar entstehen."
   }
 }
+
+# Die eigene RDP-Gruppe geht per ID an die VM: ein Name ist nicht eindeutig,
+# sobald im Projekt eine zweite "kali-user-rdp" steht.
+run "rdp_gruppe_per_id" {
+  command = apply
+
+  override_resource {
+    target = openstack_networking_secgroup_v2.rdp
+    values = {
+      id = "11111111-2222-3333-4444-555555555555"
+    }
+  }
+
+  assert {
+    condition     = contains(openstack_compute_instance_v2.shared_vm.security_groups, "11111111-2222-3333-4444-555555555555")
+    error_message = "Die RDP-Gruppe muss per ID an der VM haengen."
+  }
+  assert {
+    condition     = !contains(openstack_compute_instance_v2.shared_vm.security_groups, "kali-user-rdp")
+    error_message = "Der Name der RDP-Gruppe darf nicht verwendet werden - er ist nicht eindeutig."
+  }
+}
