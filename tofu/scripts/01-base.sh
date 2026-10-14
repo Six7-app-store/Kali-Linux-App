@@ -46,6 +46,22 @@ Dpkg::Options {
 DPkg::Lock::Timeout "600";
 EOF
 
+# Kernel und initrd nicht in die EFI-Partition kopieren.
+#
+# Ist systemd-boot installiert, legt kernel-install bei jedem neuen Kernel und
+# jeder neuen initrd eine Kopie in /boot/efi ab. Die Partition ist im
+# Debian-Image klein; neben dem Debian-Kernel passt der Kali-Kernel samt initrd
+# nicht mehr hinein ("No space left on device"). initramfs-tools bleibt dann
+# unkonfiguriert, plymouth haengt daran, und ueber kali-themes und
+# kali-desktop-core scheitert in 02-desktop.sh der ganze Desktop - gesehen im
+# ersten Deploy von v2.0.0 am 14.10.2026.
+#
+# Gebootet wird ohnehin ueber GRUB aus /boot, die Kopien braucht niemand.
+# layout=other ueberstimmt die automatische Erkennung (bls, sobald systemd-boot
+# in der EFI-Partition steckt); 90-loaderentry.install kopiert dann nichts.
+mkdir -p /etc/kernel/install.conf.d
+printf 'layout=other\n' > /etc/kernel/install.conf.d/90-kali-app.conf
+
 # --- Kali-Archivschluessel holen und pruefen ---------------------------------
 apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl gnupg
