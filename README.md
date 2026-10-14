@@ -16,7 +16,7 @@ Es gibt keinen Image-Build (kein Packer) und kein Kali-Image in OpenStack. Image
 Cloud-Admins hinzufügen.
 
 1. OpenTofu startet die VM aus dem vorhandenen Image **„Debian 13“** (`source_image_name`).
-2. Beim **ersten Start** führt cloud-init `terraform/scripts/setup.sh` aus. Das Skript stellt
+2. Beim **ersten Start** führt cloud-init `tofu/scripts/setup.sh` aus. Das Skript stellt
    Debian vollständig auf **Kali (kali-rolling)** um und installiert Desktop, Werkzeuge und
    Kursmaterial.
 3. Ist alles durchgelaufen, startet die VM einmal neu und ist bereit.
@@ -52,7 +52,7 @@ nicht. Ein Tag zeigt fest auf einen Commit und wandert nicht mit `main` mit.
 ### Weg B: Manuell
 
 ```bash
-cd terraform
+cd tofu
 cat > meine.auto.tfvars <<'EOF'
 users = {
   "Team 1" = [
@@ -83,21 +83,22 @@ tofu destroy
 
 | Datei | Aufgabe |
 |---|---|
-| `terraform/main.tf` | VM + Security Group + User-Ableitung, liefert `scripts/` mit aus |
-| `terraform/cloud-init-multi-user.yml.tpl` | Accounts, Skripte, Start von `setup.sh`, Neustart |
-| `terraform/scripts/setup.sh` | Führt alle `NN-*.sh` der Reihe nach aus, Status in motd/Log |
-| `terraform/scripts/01-base.sh` | Debian → Kali umstellen, debconf, Basispakete |
-| `terraform/scripts/02-desktop.sh` | XFCE, XRDP (IPv6-Binding) |
-| `terraform/scripts/03-tools.sh` | Kali-Werkzeuge |
-| `terraform/scripts/04-integration.sh` | Desktop-Starter, Kursverzeichnis in `/etc/skel` |
-| `terraform/scripts/05-users.sh` | Kursmaterial in die bereits angelegten Accounts, Gruppe `wireshark` |
-| `terraform/scripts/06-verify.sh` | Checks: Kali, Programme, XRDP-IPv6, Kursinhalte |
-| `terraform/outputs.tf` | Zugangsdaten (Contract) |
+| `tofu/main.tofu` | VM + Security Group + User-Ableitung, liefert `scripts/` mit aus |
+| `tofu/cloud-init-multi-user.yml.tpl` | Accounts, Skripte, Start von `setup.sh`, Neustart |
+| `tofu/scripts/setup.sh` | Führt alle `NN-*.sh` der Reihe nach aus, Status in motd/Log |
+| `tofu/scripts/01-base.sh` | Debian → Kali umstellen, debconf, Basispakete |
+| `tofu/scripts/02-desktop.sh` | XFCE, XRDP (IPv6-Binding) |
+| `tofu/scripts/03-tools.sh` | Kali-Werkzeuge |
+| `tofu/scripts/04-integration.sh` | Desktop-Starter, Kursverzeichnis in `/etc/skel` |
+| `tofu/scripts/05-users.sh` | Kursmaterial in die bereits angelegten Accounts, Gruppe `wireshark` |
+| `tofu/scripts/06-verify.sh` | Checks: Kali, Programme, XRDP-IPv6, Kursinhalte |
+| `tofu/outputs.tofu` | Zugangsdaten (Contract) |
 | `validate.sh` | Test nach dem Deployment |
 
-Der Ordner heißt weiter `terraform/`, OpenTofu liest dieselben `.tf`-Dateien.
+Der App Store erwartet genau den Ordner `tofu/` mit `*.tofu`-Dateien; ein Repo mit `tofu/`
+lehnt er ab (ADR 0010 im deployment-Repo).
 
-`main.tf` liefert **jedes** `*.sh` aus `scripts/` aus (gzip+base64 in der `user_data`, Limit
+`main.tofu` liefert **jedes** `*.sh` aus `scripts/` aus (gzip+base64 in der `user_data`, Limit
 64 KB), und `setup.sh` führt jedes `NN-*.sh` in Namensreihenfolge aus. Ein neuer Schritt braucht
 nur eine neue Datei mit Nummernpräfix. Eine Liste, die man vergessen kann, gibt es nicht.
 
@@ -130,10 +131,10 @@ Es gibt **keine Floating IP**: sie ließe sich anlegen, aber nicht zuweisen, wei
 
 ## 5. Anpassungen
 
-- **Werkzeuge:** `terraform/scripts/03-tools.sh`
-- **Neuer Einrichtungsschritt:** neue Datei `terraform/scripts/NN-name.sh`. Ohne Nummernpräfix läuft
+- **Werkzeuge:** `tofu/scripts/03-tools.sh`
+- **Neuer Einrichtungsschritt:** neue Datei `tofu/scripts/NN-name.sh`. Ohne Nummernpräfix läuft
   sie nie, das prüft die CI.
-- **Outputs:** Contract-Struktur in `outputs.tf` behalten, nur Werte ändern
+- **Outputs:** Contract-Struktur in `outputs.tofu` behalten, nur Werte ändern
 
 ## 6. Was geprüft wird
 
@@ -143,7 +144,7 @@ Es gibt **keine Floating IP**: sie ließe sich anlegen, aber nicht zuweisen, wei
 | CI (`Shell`) | `bash -n`, jede Warnung ist ein Fehler | Jeder Push |
 | CI (`Shell`) | `shellcheck --severity=warning` | Jeder Push |
 | CI (`Shell`) | `04-integration.sh` gegen Wegwerf-Wurzel ausführen, Ergebnis prüfen | Jeder Push |
-| CI (`OpenTofu`) | `tofu fmt`, `tofu validate`, `tflint`, `tfsec` | Jeder Push |
+| CI (`OpenTofu`) | `tofu fmt`, `tofu validate` | Jeder Push |
 | Plan | Precondition gegen doppelte Benutzernamen | `tofu plan` |
 | Erster Start | `06-verify.sh`: Kali, Programme, XRDP-IPv6-Konfiguration, Kursinhalte | Auf der VM |
 | Erster Start | `setup.sh`: SSH/XRDP aktiv **und** Port 3389 auf IPv6 | Auf der VM |

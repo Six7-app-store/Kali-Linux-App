@@ -5,7 +5,7 @@
 
 locals {
   # Einziges oeffentlich erreichbares Ziel der VM. Es gibt bewusst keine
-  # Floating IP (siehe main.tf).
+  # Floating IP (siehe main.tofu).
   vm_ipv6 = openstack_compute_instance_v2.shared_vm.network[0].fixed_ip_v6
 }
 

@@ -54,7 +54,7 @@ write_files:
            Fortschritt: tail -f /var/log/kali-app-setup.log
 
     permissions: '0644'
-  # Einrichtungsskripte aus terraform/scripts/, gzip+base64 wegen des
+  # Einrichtungsskripte aus tofu/scripts/, gzip+base64 wegen des
   # user_data-Limits von 64 KB.
 %{ for name, content in scripts ~}
   - path: /opt/kali-app/${name}
@@ -73,7 +73,7 @@ chpasswd:
 %{ endfor ~}
 
 # Keine ufw-Regeln: gefiltert wird in OpenStack durch die Security Groups (SSH
-# via shared_secgroup_id, RDP via der App-eigenen Gruppe in main.tf).
+# via shared_secgroup_id, RDP via der App-eigenen Gruppe in main.tofu).
 runcmd:
   - ["bash", "/opt/kali-app/setup.sh"%{ for user in all_users ~}, ${jsonencode(user.username)}%{ endfor ~}]
 

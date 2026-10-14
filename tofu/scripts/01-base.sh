@@ -29,7 +29,7 @@ MIN_FREE_GB=15
 frei_gb="$(df --output=avail -BG / | tail -n 1 | tr -dc '0-9')"
 if [ "$frei_gb" -lt "$MIN_FREE_GB" ]; then
   echo "❌ Nur ${frei_gb} GB frei auf /, mindestens ${MIN_FREE_GB} GB noetig."
-  echo "   Flavor mit groesserer Root-Disk waehlen (Variable flavor in terraform/variables.tf)."
+  echo "   Flavor mit groesserer Root-Disk waehlen (Variable flavor in tofu/variables.tofu)."
   exit 1
 fi
 echo "✓ ${frei_gb} GB frei auf /"
