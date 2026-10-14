@@ -54,9 +54,27 @@ systemctl restart xrdp ssh
 [ "$(systemctl is-active ssh)" = "active" ] || { echo "❌ SSH nicht aktiv"; false; }
 [ "$(systemctl is-active xrdp)" = "active" ] || { echo "❌ XRDP nicht aktiv"; false; }
 # Nicht nur "laeuft der Dienst", sondern "lauscht er auf IPv6". Ein auf IPv4
-# gebundener XRDP waere im DHBWV6-Netz nicht erreichbar.
-ss -tln | grep -q '\[::\]:3389' || { echo "❌ XRDP lauscht nicht auf IPv6:3389"; false; }
-echo "✓ SSH und XRDP aktiv, XRDP auf [::]:3389"
+# gebundener XRDP (0.0.0.0:3389) waere im DHBWV6-Netz nicht erreichbar.
+#
+# ss zeigt einen IPv6-Socket je nach bindv6only verschieden: reines IPv6 als
+# "[::]:3389", Dual-Stack als "*:3389". 02-desktop.sh setzt bindv6only=0, also
+# Dual-Stack - die fruehere Pruefung nur auf "[::]:3389" schlug deshalb immer
+# fehl, obwohl XRDP lauschte (gesehen am 14.10.2026). Nach dem Neustart oben
+# braucht XRDP ausserdem einen Moment, bis der Socket steht.
+xrdp_ipv6=false
+for _ in $(seq 1 30); do
+  if ss -tlnH 'sport = :3389' | awk '{print $4}' | grep -qE '^(\[::\]|\*):3389$'; then
+    xrdp_ipv6=true
+    break
+  fi
+  sleep 1
+done
+if [ "$xrdp_ipv6" != true ]; then
+  echo "❌ XRDP lauscht nicht auf IPv6:3389"
+  ss -tln | grep ':3389' || echo "   (gar kein Socket auf 3389)"
+  false
+fi
+echo "✓ SSH und XRDP aktiv, XRDP auf IPv6:3389"
 
 cat > /etc/motd <<'EOF'
 
