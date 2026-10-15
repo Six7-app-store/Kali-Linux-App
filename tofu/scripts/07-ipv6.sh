@@ -93,19 +93,32 @@ if [ -z "$geraet" ]; then
   exit 1
 fi
 
-verbindung="$(nmcli -g GENERAL.CONNECTION device show "$geraet" 2>/dev/null)"
-if [ -z "$verbindung" ]; then
-  echo "kali-app-ipv6: $geraet hat keine NetworkManager-Verbindung"
-  exit 1
-fi
+# Wer eth0 einrichtet, sagt etwas ueber die eigentliche Ursache - fuer die
+# Fehlersuche mit in die Konsole.
+echo "kali-app-ipv6: DHCP-Programme: $(command -v dhclient dhcpcd udhcpc 2>/dev/null | tr '\n' ' ')"
+grep -hs "$geraet" /etc/network/interfaces /etc/network/interfaces.d/* | sed 's/^/kali-app-ipv6:   ifupdown /'
 
-echo "kali-app-ipv6: trage $adresse (Gateway $gateway) fest in \"$verbindung\" auf $geraet ein"
-argumente=(ipv6.method manual ipv6.addresses "$adresse")
-if [ "$gateway" != "-" ]; then
-  argumente+=(ipv6.gateway "$gateway")
+verbindung="$(nmcli -g GENERAL.CONNECTION device show "$geraet" 2>/dev/null || true)"
+if [ -n "$verbindung" ]; then
+  # NetworkManager verwaltet das Interface: dort fest eintragen, sonst
+  # ueberschreibt er eine von Hand gesetzte Adresse.
+  echo "kali-app-ipv6: trage $adresse (Gateway $gateway) fest in \"$verbindung\" auf $geraet ein"
+  argumente=(ipv6.method manual ipv6.addresses "$adresse")
+  if [ "$gateway" != "-" ]; then
+    argumente+=(ipv6.gateway "$gateway")
+  fi
+  nmcli connection modify "$verbindung" "${argumente[@]}"
+  nmcli connection up "$verbindung" >/dev/null
+else
+  # Gesehen am 15.10.2026 (v2.1.0): eth0 ist fuer NetworkManager
+  # "unmanaged", die Debian-Konfiguration bezieht IPv4, aber keine IPv6.
+  # Dann direkt setzen. Der Dienst laeuft bei jedem Boot, das genuegt.
+  echo "kali-app-ipv6: $geraet ohne NetworkManager - setze $adresse (Gateway $gateway) direkt"
+  ip -6 addr replace "$adresse" dev "$geraet"
+  if [ "$gateway" != "-" ]; then
+    ip -6 route replace default via "$gateway" dev "$geraet"
+  fi
 fi
-nmcli connection modify "$verbindung" "${argumente[@]}"
-nmcli connection up "$verbindung" >/dev/null
 
 for _ in $(seq 1 15); do
   if [ -n "$(global_v6)" ]; then
