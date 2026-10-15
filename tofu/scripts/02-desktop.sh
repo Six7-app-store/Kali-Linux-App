@@ -12,17 +12,37 @@ trap 'echo "❌ FEHLER in $0 Zeile $LINENO"; exit 1' ERR
 # "sed -i" meldet auch dann Erfolg, wenn das Muster nirgends passt. Ein
 # "sed ... || fallback" waere also wirkungslos - der Fallback liefe nie, und
 # eine fehlende Zeile fiele erst beim ersten RDP-Versuch auf.
+#
+# Nur innerhalb von [section]. Die fruehere Fassung ersetzte den Schluessel in
+# der ganzen Datei: "port=" steht in xrdp.ini aber in fast jedem Abschnitt.
+# [Xorg] bekam so "port=tcp6://:3389" statt "port=-1" (lokaler Sesman), und
+# jede Anmeldung scheiterte mit "error - no ip set" (gesehen am 15.10.2026).
+# In [Channels] wurde dabei ausserdem ein absichtlich auskommentiertes
+# "#port=" aktiviert.
 set_ini_key() {
-  local file="$1" section="$2" key="$3" value="$4"
+  local file="$1" section="$2" key="$3" value="$4" tmp
+  tmp="$(mktemp)"
 
-  if grep -qE "^#?${key}=" "$file"; then
-    sed -i "s|^#\?${key}=.*|${key}=${value}|" "$file"
-  else
-    sed -i "/^\[${section}\]/a ${key}=${value}" "$file"
-  fi
+  awk -v sec="[${section}]" -v key="$key" -v val="$value" '
+    # Fehlt der Schluessel im Abschnitt, ans Ende des Abschnitts haengen.
+    function anhaengen() { if (drin && !gesetzt) { print key "=" val; gesetzt = 1 } }
+    /^\[/ { anhaengen(); drin = ($0 == sec) }
+    drin && index($0, key "=") == 1 || drin && index($0, "#" key "=") == 1 {
+      if (!gesetzt) { print key "=" val; gesetzt = 1 }
+      next
+    }
+    { print }
+    END { anhaengen() }
+  ' "$file" > "$tmp"
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
 
-  grep -qxF "${key}=${value}" "$file" || {
-    echo "❌ $file: ${key}=${value} konnte nicht gesetzt werden"
+  awk -v sec="[${section}]" -v zeile="${key}=${value}" '
+    /^\[/ { drin = ($0 == sec) }
+    drin && $0 == zeile { gefunden = 1 }
+    END { exit !gefunden }
+  ' "$file" || {
+    echo "❌ $file: ${key}=${value} in [${section}] konnte nicht gesetzt werden"
     exit 1
   }
 }
