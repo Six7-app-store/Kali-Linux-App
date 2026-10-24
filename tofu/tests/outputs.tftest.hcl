@@ -102,8 +102,14 @@ run "abschlusszeile_fuer_den_worker" {
   command = apply
 
   assert {
-    condition     = startswith(yamldecode(openstack_compute_instance_v2.shared_vm.user_data).final_message, "Cloud-init v. $VERSION finished at $TIMESTAMP.")
+    condition     = startswith(yamldecode(openstack_compute_instance_v2.shared_vm.user_data).final_message, "Cloud-init v. $VERSION finished at $TIMESTAMP")
     error_message = "final_message muss mit der Standardzeile von cloud-init beginnen, sonst wartet der Worker bis zum Timeout."
+  }
+  # cloud-init nimmt Punkte in den Variablennamen auf: "$TIMESTAMP." scheitert
+  # beim Rendern, und die Meldung fehlt ganz.
+  assert {
+    condition     = !can(regex("\\$[A-Za-z0-9_]+\\.", yamldecode(openstack_compute_instance_v2.shared_vm.user_data).final_message))
+    error_message = "In final_message darf kein Punkt direkt hinter einer Variable stehen, cloud-init rendert die Meldung sonst nicht."
   }
 }
 

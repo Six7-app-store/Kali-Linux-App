@@ -96,6 +96,10 @@ power_state:
 # erkennt daran das Ende der Einrichtung: nach dem Neustart schreibt Kalis
 # systemd keine Statuszeilen mehr auf die serielle Konsole, sobald dort der
 # Login steht, "Finished cloud-final.service" kommt also nie.
+#
+# Kein Punkt direkt hinter einer Variable: cloud-init liest "$TIMESTAMP." als
+# Pfad TIMESTAMP -> "" und verwirft die ganze Meldung ("Failed to render final
+# message template", Staging 24.10.2026).
 final_message: |
-  Cloud-init v. $VERSION finished at $TIMESTAMP. Up $UPTIME seconds.
+  Cloud-init v. $VERSION finished at $TIMESTAMP, up $UPTIME seconds
   Kali-App: Teams: ${join(", ", unique_teams)}, Nutzer: ${length(all_users)}
