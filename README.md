@@ -5,7 +5,7 @@ Bereitgestellt mit **OpenTofu**, ohne Image-Build.
 
 ## Features
 
-- **XFCE-Desktop** per XRDP (Port 3389, über IPv6)
+- **XFCE-Desktop** per XRDP (Port 3389, über IPv6, IPv4 oder beides)
 - **Kali-Werkzeuge:** nmap, wireshark, tcpdump, burpsuite, metasploit, john, hydra, sqlmap, gobuster, nikto, aircrack-ng
 - **Desktop-Integration:** Starter, Autostart, Kursverzeichnis `~/kali-kurs/`
 - **Multi-User:** Geteilte VM, pro Nutzer eigene RDP-Session + Account
@@ -92,11 +92,13 @@ tofu destroy
 | `tofu/scripts/04-integration.sh` | Desktop-Starter, Kursverzeichnis in `/etc/skel` |
 | `tofu/scripts/05-users.sh` | Kursmaterial in die bereits angelegten Accounts, Gruppe `wireshark` |
 | `tofu/scripts/06-verify.sh` | Checks: Kali, Programme, XRDP-IPv6, Kursinhalte |
+| `tofu/scripts/07-ipv6.sh` | Dienst `kali-app-ipv6`: IPv6 aus den Metadaten sicherstellen |
+| `tofu/scripts/08-ipv4.sh` | Dienst `kali-app-ipv4`: zweite Schnittstelle bei `ip_mode = dual` |
 | `tofu/outputs.tofu` | Zugangsdaten (Contract) |
 | `validate.sh` | Test nach dem Deployment |
 
-Der App Store erwartet genau den Ordner `tofu/` mit `*.tofu`-Dateien; ein Repo mit `tofu/`
-lehnt er ab (ADR 0010 im deployment-Repo).
+Der App Store erwartet genau den Ordner `tofu/` mit `*.tofu`-Dateien; ein Repo mit `packer/`
+oder `terraform/` lehnt er ab (ADR 0010 im deployment-Repo).
 
 `main.tofu` liefert **jedes** `*.sh` aus `scripts/` aus (gzip+base64 in der `user_data`, Limit
 64 KB), und `setup.sh` führt jedes `NN-*.sh` in Namensreihenfolge aus. Ein neuer Schritt braucht
@@ -112,10 +114,10 @@ Zeitpunkt ist `/etc/skel` noch leer, und `useradd` kopiert es nur beim Anlegen.
 | VMs | 1 (geteilt) |
 | Basis-Image | „Debian 13“, im Formular als `source_image_name` wählbar |
 | Flavor | win11.medium (2 vCPU, 8 GB RAM, 80 GB). `gp1` hat nur 10 GB Platte, zu wenig für Kali mit Desktop. Im Formular als `flavor` wählbar. |
-| Netz | IPv6 (DHBWV6) |
+| Netz | wählbar über `ip_mode`: IPv6 (Standard, DHBWV6), IPv4 oder beides |
 | RDP-Port | 3389 (eigene Security Group) |
 
-Es gibt **keine Floating IP**: sie ließe sich anlegen, aber nicht zuweisen, weil zwischen VM-Subnetz und externem Netz der Router fehlt. Die feste IPv4 ist eine private NAT-Adresse — erreichbar ist die VM nur über IPv6.
+Es gibt **keine Floating IP**: sie ließe sich anlegen, aber nicht zuweisen, weil zwischen VM-Subnetz und externem Netz der Router fehlt. Im Standardnetz DHBWV6 ist die feste IPv4 eine private NAT-Adresse — erreichbar ist die VM dort nur über IPv6. Öffentliches IPv4 gibt es über ein eigenes IPv4-Netz (`ip_mode` `ipv4` oder `dual`, siehe unten).
 
 ## 4. Konfigurierbare Variablen
 
@@ -123,11 +125,33 @@ Es gibt **keine Floating IP**: sie ließe sich anlegen, aber nicht zuweisen, wei
 |---|---|---|
 | `source_image_name` | Debian-Basis-Image | `Debian 13` |
 | `flavor` | Flavor der VM (mind. 20 GB Platte) | `win11.medium` |
-| `network_uuid` | Netzwerk-ID | 9b579624-… |
+| `ip_mode` | Adressfamilie: `ipv4`, `ipv6` oder `dual` | `ipv6` |
+| `network_uuid` | Netz mit öffentlicher IPv6, für `ipv6` und `dual` | 9b579624-… |
+| `network_v4_uuid` | Netz mit öffentlich gerouteter IPv4, für `ipv4` und `dual` | leer |
 | `shared_secgroup_id` | Security Group | 7ca4f889-… |
 | `rdp_source_cidr` | RDP-Quellpräfix (IPv6) | `::/0` |
+| `rdp_source_cidr_v4` | RDP-Quellpräfix (IPv4), nur bei `ipv4` und `dual` | `141.72.0.0/16` |
 
 `rdp_source_cidr` sollte auf das DHBW-Campuspräfix eingegrenzt werden — ein weltweit offener RDP-Port auf einer Kali-VM ist ein lohnendes Ziel.
+
+### Adressfamilie (`ip_mode`)
+
+| `ip_mode` | Schnittstellen | Zugangsdaten nennen |
+|---|---|---|
+| `ipv6` (Standard) | eine, im Netz `network_uuid` | die IPv6 in eckigen Klammern |
+| `ipv4` | eine, im Netz `network_v4_uuid` | die IPv4 |
+| `dual` | Hauptschnittstelle in `network_uuid`, zweite in `network_v4_uuid` | die IPv4 |
+
+Die App-eigene Security Group öffnet RDP und SSH je gewählter Familie. Bei
+`dual` hängt OpenTofu die IPv4-Schnittstelle erst an die laufende VM. Weil
+nach der Umstellung NetworkManager das Netz verwaltet, richtet sie kein
+netplan ein, sondern der Dienst `kali-app-ipv4` aus `08-ipv4.sh`: bei jedem
+Boot Adresse, eigene Routing-Tabelle über das Gateway des IPv4-Netzes und eine
+Regel für Antworten von dieser Adresse. Ohne sie verwürfe Neutrons
+Port-Security die Antworten als gefälschten Absender. Bei `ipv4` beendet
+sich `kali-app-ipv6` ohne Fehler, weil es keine IPv6 gibt.
+
+Auf newstack erprobt ist bisher nur `ipv6`.
 
 ## 5. Anpassungen
 
