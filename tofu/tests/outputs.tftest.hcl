@@ -96,6 +96,17 @@ run "rdp_gruppe_per_id" {
   }
 }
 
+# Der Worker erkennt das Ende der Einrichtung an der Standardzeile von
+# cloud-init; nach Kalis Neustart fehlt die systemd-Zeile auf der Konsole.
+run "abschlusszeile_fuer_den_worker" {
+  command = apply
+
+  assert {
+    condition     = startswith(yamldecode(openstack_compute_instance_v2.shared_vm.user_data).final_message, "Cloud-init v. $VERSION finished at $TIMESTAMP.")
+    error_message = "final_message muss mit der Standardzeile von cloud-init beginnen, sonst wartet der Worker bis zum Timeout."
+  }
+}
+
 run "rdp_gruppe_mit_eindeutigem_namen" {
   command = apply
 
