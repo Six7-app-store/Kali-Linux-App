@@ -92,7 +92,10 @@ power_state:
   message: "Kali-Einrichtung abgeschlossen, Neustart"
   condition: "test -f /var/lib/kali-app/ready"
 
+# Die erste Zeile ist die Standardmeldung von cloud-init. Der App-Store-Worker
+# erkennt daran das Ende der Einrichtung: nach dem Neustart schreibt Kalis
+# systemd keine Statuszeilen mehr auf die serielle Konsole, sobald dort der
+# Login steht, "Finished cloud-final.service" kommt also nie.
 final_message: |
-  Kali-App: cloud-init fertig nach $UPTIME s.
-  Teams: ${join(", ", unique_teams)}
-  Nutzer: ${length(all_users)}
+  Cloud-init v. $VERSION finished at $TIMESTAMP. Up $UPTIME seconds.
+  Kali-App: Teams: ${join(", ", unique_teams)}, Nutzer: ${length(all_users)}
