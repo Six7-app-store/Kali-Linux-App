@@ -127,9 +127,12 @@ grep -E '^(port|enable_ipv6)=' /etc/xrdp/xrdp.ini
 **Port 3389 von außen dicht**
 → Es gibt keine Host-Firewall (kein ufw). Gefiltert wird über OpenStack Security Groups:
 ```bash
-openstack security group list
-openstack security group rule list kali-user-rdp
+openstack security group list | grep kali-user-rdp
+openstack security group rule list kali-user-rdp-<anhang>
 ```
+→ Der Anhang ist je Deployment zufällig (`random_string.secgroup_suffix`). Ohne ihn
+kollidieren zwei Deployments im selben Projekt: Nova löst die Gruppe über den Namen auf, und
+die VM endet in ERROR mit „Multiple security groups found matching 'kali-user-rdp'“.
 → Die Regel muss `ethertype = IPv6` haben; eine IPv4-Regel ist hier wirkungslos.
 
 **SSH-Login mit Passwort wird abgelehnt**
