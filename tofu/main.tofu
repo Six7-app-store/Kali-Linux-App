@@ -33,9 +33,69 @@ locals {
 # zuweisen - zwischen VM-Subnetz und externem Netz fehlt der Router
 # ("External network ... is not reachable from subnet").
 #
-# Oeffentlich erreichbar ist die Instanz ueber IPv6; die feste IPv4 im
-# DHBWV6-Netz ist eine private NAT-Adresse (10.200.x.x). Deshalb geben die
-# outputs fixed_ip_v6 als Verbindungsziel aus.
+# Erreichbar ist die Instanz ueber die feste Adresse der gewaehlten Familie
+# (var.ip_mode). Die IPv4 im DHBWV6-Netz ist eine private NAT-Adresse
+# (10.200.x.x) und taugt nicht als Verbindungsziel.
+
+############################
+# ADRESSFAMILIEN (var.ip_mode)
+############################
+
+locals {
+  ethertypes = {
+    ipv4 = ["IPv4"]
+    ipv6 = ["IPv6"]
+    dual = ["IPv4", "IPv6"]
+  }[var.ip_mode]
+
+  # Bei dual liegt die Hauptschnittstelle im IPv6-Netz: dessen private IPv4
+  # bringt den Weg nach draussen (Kali-Paketquellen) ueber NAT mit, die
+  # oeffentliche IPv4 kommt als zweite Schnittstelle dazu.
+  primary_network_id = var.ip_mode == "ipv4" ? var.network_v4_uuid : var.network_uuid
+
+  dual = var.ip_mode == "dual"
+}
+
+# Zweite Schnittstelle fuer dual, vorab als Port angelegt: so sind MAC und
+# Adresse schon bekannt, wenn cloud-init sein user-data bekommt.
+resource "openstack_networking_port_v2" "v4" {
+  count      = local.dual ? 1 : 0
+  name       = "${local.app_name}-shared-v4"
+  network_id = var.network_v4_uuid
+
+  security_group_ids = [
+    var.shared_secgroup_id,
+    openstack_networking_secgroup_v2.rdp.id,
+  ]
+}
+
+# Praefix und Gateway des IPv4-Netzes fuer die eigene Routing-Tabelle der
+# zweiten Schnittstelle (scripts/08-ipv4.sh).
+data "openstack_networking_subnet_v2" "v4" {
+  count      = local.dual ? 1 : 0
+  network_id = var.network_v4_uuid
+  ip_version = 4
+
+  lifecycle {
+    postcondition {
+      condition     = self.gateway_ip != ""
+      error_message = "Das IPv4-Netz in network_v4_uuid hat kein Gateway; dual braucht eins fuer die Antworten der zweiten Schnittstelle."
+    }
+  }
+}
+
+locals {
+  secondary_ipv4 = local.dual ? one([for ip in openstack_networking_port_v2.v4[0].all_fixed_ips : ip if !strcontains(ip, ":")]) : ""
+
+  # Eine Zeile fuer 08-ipv4.sh: "<mac> <adresse>/<praefix> <netz> <gateway>".
+  # Leer, wenn es keine zweite Schnittstelle gibt.
+  secondary_config = local.dual ? join(" ", [
+    openstack_networking_port_v2.v4[0].mac_address,
+    "${local.secondary_ipv4}/${split("/", data.openstack_networking_subnet_v2.v4[0].cidr)[1]}",
+    data.openstack_networking_subnet_v2.v4[0].cidr,
+    data.openstack_networking_subnet_v2.v4[0].gateway_ip,
+  ]) : ""
+}
 
 ############################
 # USER MANAGEMENT (CONTRACT)
@@ -131,23 +191,40 @@ locals {
 #
 # Die gemeinsame Default-SG (var.shared_secgroup_id) laesst Port 3389 nicht
 # durch und gehoert nicht dieser App. Deshalb legt die App ihre eigene an und
-# haengt sie zusaetzlich an die Instanz. ethertype = "IPv6" ist entscheidend:
-# eine IPv4-Regel waere hier wirkungslos, weil die VM nur ueber IPv6 erreichbar
-# ist.
+# haengt sie zusaetzlich an die Instanz. Regeln je Adressfamilie aus
+# var.ip_mode: eine IPv4-Regel laesst kein IPv6-Paket durch und umgekehrt.
+# SSH steht mit drin, weil die gemeinsame Gruppe es nicht fuer jede Familie
+# zusichert.
 # -----------------------------------------------------------------------------
 resource "openstack_networking_secgroup_v2" "rdp" {
   name        = "${local.app_name}-rdp"
-  description = "RDP-Zugang (Port 3389) fuer den Kali-Desktop"
+  description = "RDP-Zugang (Port 3389) fuer den Kali-Desktop, dazu SSH"
 }
 
-resource "openstack_networking_secgroup_rule_v2" "rdp_v6" {
+resource "openstack_networking_secgroup_rule_v2" "rdp" {
+  for_each = toset(local.ethertypes)
+
   direction         = "ingress"
-  ethertype         = "IPv6"
+  ethertype         = each.key
   protocol          = "tcp"
   port_range_min    = 3389
   port_range_max    = 3389
-  remote_ip_prefix  = var.rdp_source_cidr
+  remote_ip_prefix  = each.key == "IPv4" ? var.rdp_source_cidr_v4 : var.rdp_source_cidr
   security_group_id = openstack_networking_secgroup_v2.rdp.id
+  description       = "RDP (${each.key})"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "ssh" {
+  for_each = toset(local.ethertypes)
+
+  direction         = "ingress"
+  ethertype         = each.key
+  protocol          = "tcp"
+  port_range_min    = 22
+  port_range_max    = 22
+  remote_ip_prefix  = each.key == "IPv4" ? "0.0.0.0/0" : "::/0"
+  security_group_id = openstack_networking_secgroup_v2.rdp.id
+  description       = "SSH (${each.key})"
 }
 
 # -----------------------------------------------------------------------------
@@ -171,16 +248,19 @@ resource "openstack_compute_instance_v2" "shared_vm" {
     delete = "15m"
   }
 
+  # Nur die Hauptschnittstelle. Die zweite bei dual haengt interface_attach
+  # unten an; eingerichtet wird sie von scripts/08-ipv4.sh.
   network {
-    uuid = var.network_uuid
+    uuid = local.primary_network_id
   }
 
   user_data = templatefile("${path.module}/cloud-init-multi-user.yml.tpl", {
-    all_users     = local.all_users
-    unique_teams  = local.unique_teams
-    unique_groups = local.unique_groups
-    passwords     = [for p in random_password.user_passwords : p.result]
-    scripts       = local.setup_scripts
+    all_users        = local.all_users
+    unique_teams     = local.unique_teams
+    unique_groups    = local.unique_groups
+    passwords        = [for p in random_password.user_passwords : p.result]
+    scripts          = local.setup_scripts
+    secondary_config = local.secondary_config
   })
 
   metadata = merge(local.metadata, {
@@ -197,7 +277,24 @@ resource "openstack_compute_instance_v2" "shared_vm" {
       condition     = length(local.usernames) == length(distinct(local.usernames))
       error_message = "Roster ergibt doppelte Linux-Benutzernamen: ${join(", ", local.usernames)}. Jede Person darf nur einmal vorkommen."
     }
+    precondition {
+      condition     = var.ip_mode == "ipv6" || var.network_v4_uuid != ""
+      error_message = "ip_mode \"${var.ip_mode}\" braucht ein IPv4-Netz in network_v4_uuid."
+    }
+    precondition {
+      condition     = var.ip_mode == "ipv4" || var.network_uuid != ""
+      error_message = "ip_mode \"${var.ip_mode}\" braucht ein IPv6-Netz in network_uuid."
+    }
   }
+
+  depends_on = [openstack_networking_secgroup_rule_v2.rdp, openstack_networking_secgroup_rule_v2.ssh]
+}
+
+# Zweite Schnittstelle (dual) an die laufende Instanz.
+resource "openstack_compute_interface_attach_v2" "v4" {
+  count       = local.dual ? 1 : 0
+  instance_id = openstack_compute_instance_v2.shared_vm.id
+  port_id     = openstack_networking_port_v2.v4[0].id
 }
 
 # Kein Warten auf die fertige Einrichtung in apply: die Umstellung auf Kali mit

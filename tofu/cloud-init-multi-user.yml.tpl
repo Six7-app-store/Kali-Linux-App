@@ -54,6 +54,13 @@ write_files:
            Fortschritt: tail -f /var/log/kali-app-setup.log
 
     permissions: '0644'
+%{ if secondary_config != "" ~}
+  # ip_mode = dual: MAC, Adresse, Netz und Gateway der zweiten
+  # Schnittstelle; liest scripts/08-ipv4.sh.
+  - path: /etc/kali-app/secondary-ipv4
+    content: ${jsonencode("${secondary_config}\n")}
+    permissions: '0644'
+%{ endif ~}
   # Einrichtungsskripte aus tofu/scripts/, gzip+base64 wegen des
   # user_data-Limits von 64 KB.
 %{ for name, content in scripts ~}

@@ -77,8 +77,9 @@ for netz in daten.get("networks", []):
 ')"
 
 if [ -z "$ziel" ]; then
-  echo "kali-app-ipv6: keine IPv6-Adresse in den Metadaten"
-  exit 1
+  # Bei ip_mode ipv4 haengt die VM in keinem IPv6-Netz - nichts zu tun.
+  echo "kali-app-ipv6: keine IPv6-Adresse in den Metadaten, die VM hat kein IPv6-Netz"
+  exit 0
 fi
 read -r mac adresse gateway <<<"$ziel"
 
