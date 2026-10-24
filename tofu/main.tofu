@@ -195,9 +195,21 @@ locals {
 # var.ip_mode: eine IPv4-Regel laesst kein IPv6-Paket durch und umgekehrt.
 # SSH steht mit drin, weil die gemeinsame Gruppe es nicht fuer jede Familie
 # zusichert.
+#
+# Der Name braucht einen Zufallsanhang. Nova loest die Gruppen einer Instanz
+# ueber den Namen auf, auch wenn unten die ID steht. Gibt es den Namen
+# zweimal im Projekt (zweites Deployment, liegengebliebene Gruppe), scheitert
+# jeder Bauversuch mit "Multiple security groups found matching", und die VM
+# endet in ERROR (Staging, 24.10.2026).
 # -----------------------------------------------------------------------------
+resource "random_string" "secgroup_suffix" {
+  length  = 6
+  special = false
+  upper   = false
+}
+
 resource "openstack_networking_secgroup_v2" "rdp" {
-  name        = "${local.app_name}-rdp"
+  name        = "${local.app_name}-rdp-${random_string.secgroup_suffix.result}"
   description = "RDP-Zugang (Port 3389) fuer den Kali-Desktop, dazu SSH"
 }
 

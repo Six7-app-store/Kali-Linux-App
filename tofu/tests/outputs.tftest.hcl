@@ -73,8 +73,9 @@ run "rdp_ziel_ohne_klammern_vom_provider" {
   }
 }
 
-# Die eigene RDP-Gruppe geht per ID an die VM: ein Name ist nicht eindeutig,
-# sobald im Projekt eine zweite "kali-user-rdp" steht.
+# Die eigene RDP-Gruppe geht per ID an die VM. Das allein reicht auf newstack
+# nicht: Nova loest auch eine ID ueber den Namen auf. Deshalb traegt der Name
+# einen Zufallsanhang und ist je Deployment eindeutig.
 run "rdp_gruppe_per_id" {
   command = apply
 
@@ -92,6 +93,22 @@ run "rdp_gruppe_per_id" {
   assert {
     condition     = !contains(openstack_compute_instance_v2.shared_vm.security_groups, "kali-user-rdp")
     error_message = "Der Name der RDP-Gruppe darf nicht verwendet werden - er ist nicht eindeutig."
+  }
+}
+
+run "rdp_gruppe_mit_eindeutigem_namen" {
+  command = apply
+
+  override_resource {
+    target = random_string.secgroup_suffix
+    values = {
+      result = "x7k2qa"
+    }
+  }
+
+  assert {
+    condition     = openstack_networking_secgroup_v2.rdp.name == "kali-user-rdp-x7k2qa"
+    error_message = "Der Name der RDP-Gruppe braucht den Zufallsanhang, sonst kollidieren zwei Deployments im selben Projekt."
   }
 }
 
